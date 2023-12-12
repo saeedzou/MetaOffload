@@ -22,7 +22,7 @@
 "wandb_key":"4854456d646f9dfd7d62e31bef15341351932076",
 "wandb_project":"metaoffload",
 "wandb_name":"myconfig",
-"save":false,
+"save":true,
 "save_path":"./models",
 "save_every":100,
 "load":false,
