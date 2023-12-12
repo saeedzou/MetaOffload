@@ -2,7 +2,7 @@ from tqdm import tqdm
 import numpy as np
 import torch
 
-def inner_loop(policy, optimizer, buffer, meta_batch, task_id, inner_bs, adapt_steps, clip_eps, vf_coef, ent_coef, vf_is_clipped, is_graph):
+def inner_loop(policy, optimizer, buffer, meta_batch, task_id, inner_bs, adapt_steps, clip_eps, vf_coef, ent_coef, vf_is_clipped, is_graph, max_grad_norm=None):
     observations, adjs, actions, logprobs, v_olds, advantages, rewards, returns, fts = buffer.sample(meta_batch, batch_size=inner_bs)
     vf_loss, pg_loss, ent_loss = [], [], []
     # Adapt the policy on the current task
@@ -37,7 +37,8 @@ def inner_loop(policy, optimizer, buffer, meta_batch, task_id, inner_bs, adapt_s
             # compute gradient
             loss.backward()
             # gradient clipping
-            # nn.utils.clip_grad_norm_(policy.parameters(), 0.5)
+            if max_grad_norm is not None:
+                torch.nn.utils.clip_grad_norm_(policy.parameters(), max_grad_norm)
             # update policy parameters
             optimizer.step()
     vf_loss = np.mean(vf_loss)
