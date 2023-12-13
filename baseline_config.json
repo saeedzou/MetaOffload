@@ -24,7 +24,7 @@
 "wandb_name":"baseline",
 "save":true,
 "save_path":"./models",
-"save_every":100,
+"save_every":10,
 "load":false,
 "load_path":"./models/policy_0.pt",
 "graph_number":100,
