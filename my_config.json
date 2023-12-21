@@ -33,7 +33,7 @@
 "wandb_name":"myconfig",
 "save":true,
 "save_path":"./models",
-"save_every":10,
+"save_every":50,
 "load":false,
 "load_path":"./models/policy_0.pt",
 "graph_number":100,
