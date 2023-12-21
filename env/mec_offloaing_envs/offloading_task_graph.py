@@ -227,27 +227,48 @@ class OffloadingTaskGraph(object):
         point_sequence = []
         for i in range(self.task_number):
             task = self.task_list[i]
+            max_running_time = max(resource_cluster.locally_execution_cost(self.max_data_size),
+                                   resource_cluster.up_transmission_cost(self.max_data_size),
+                                   resource_cluster.dl_transmission_cost(self.max_data_size),
+                                   resource_cluster.mec_execution_cost(self.max_data_size))
+            min_running_time = min(resource_cluster.locally_execution_cost(self.min_data_size),
+                                   resource_cluster.up_transmission_cost(self.min_data_size),
+                                   resource_cluster.dl_transmission_cost(self.min_data_size),
+                                   resource_cluster.mec_execution_cost(self.min_data_size))
             local_process_cost = task.processing_data_size / resource_cluster.mobile_process_capable
+            local_process_cost = self.norm_feature(local_process_cost, max_running_time, min_running_time)
             up_link_cost = resource_cluster.up_transmission_cost(task.processing_data_size)
+            up_link_cost = self.norm_feature(up_link_cost, max_running_time, min_running_time)
             mec_process_cost = task.processing_data_size / resource_cluster.mec_process_capble
+            mec_process_cost = self.norm_feature(mec_process_cost, max_running_time, min_running_time)
             down_link_cost = resource_cluster.dl_transmission_cost(task.transmission_data_size)
+            down_link_cost = self.norm_feature(down_link_cost, max_running_time, min_running_time)
 
-            task_embeding_vector = [i, local_process_cost, up_link_cost,
-                                    mec_process_cost, down_link_cost]
+            norm_processing_data_size = self.norm_feature(task.processing_data_size, self.max_data_size, self.min_data_size)
+            norm_transmission_data_size = self.norm_feature(task.transmission_data_size, self.max_data_size, self.min_data_size)
+
+
+            task_embeding_vector = [i / self.task_number,
+                                    norm_processing_data_size,
+                                    norm_transmission_data_size,
+                                    local_process_cost,
+                                    up_link_cost,
+                                    mec_process_cost,
+                                    down_link_cost]
 
             pre_task_index_set = []
             succs_task_index_set = []
 
             for pre_task_index in range(0, i):
                 if self.dependency[pre_task_index][i] > 0.1:
-                    pre_task_index_set.append(pre_task_index)
+                    pre_task_index_set.append(pre_task_index/self.task_number)
 
             while (len(pre_task_index_set) < 6):
                 pre_task_index_set.append(-1.0)
 
             for succs_task_index in range(i + 1, self.task_number):
                 if self.dependency[i][succs_task_index] > 0.1:
-                    succs_task_index_set.append(succs_task_index)
+                    succs_task_index_set.append(succs_task_index/self.task_number)
 
             while (len(succs_task_index_set) < 6):
                 succs_task_index_set.append(-1.0)
@@ -298,23 +319,6 @@ class OffloadingTaskGraph(object):
         print(self.pre_task_sets)
         print("This is edge set:")
         print(self.edge_set)
-
-    def prioritize_tasks2(self):
-        """
-        Sort tasks by ascending order of depth, descending order of processing data size and
-        ascending order of transmission data size.
-        """
-        # use sorted function to sort the task list
-        all_task = []
-        for i in range(0, self.task_number):
-            task = self.task_list[i]
-            all_task.append([i, task.depth, task.processing_data_size, task.transmission_data_size])
-
-        sorted_task = sorted(all_task, key=lambda x: (x[1], -x[2], x[3]))
-        self.prioritize_sequence = [x[0] for x in sorted_task]
-        return [x[0] for x in sorted_task]
-
-
 
     def prioritize_tasks(self, resource_cluster):
         w = [0] * self.task_number
