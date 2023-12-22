@@ -3,6 +3,24 @@ import numpy as np
 import torch
 
 def inner_loop(policy, optimizer, buffer, meta_batch, task_id, hparams):
+    """
+    Executes the inner loop of the meta-training process.
+
+    Args:
+        policy (Policy): The policy network.
+        optimizer (Optimizer): The optimizer used to update the policy parameters.
+        buffer (Buffer): The replay buffer containing the sampled trajectories.
+        meta_batch (int): The relative task id based on sampled tasks.
+        task_id (int): The ID of the current task.
+        hparams (dict): Hyperparameters for the inner loop.
+
+    Returns:
+        vf_loss (float): The average value function loss.
+        pg_loss (float): The average policy gradient loss.
+        ent_loss (float): The average entropy loss.
+        fts (list): List of finish times of DAGs.
+        policy (Policy): The updated policy network.
+    """
     observations, adjs, actions, logprobs, v_olds, advantages, rewards, returns, fts = buffer.sample(meta_batch, batch_size=hparams.inner_batch_size)
     vf_loss, pg_loss, ent_loss = [], [], []
     # Adapt the policy on the current task
@@ -47,8 +65,20 @@ def inner_loop(policy, optimizer, buffer, meta_batch, task_id, hparams):
     return vf_loss, pg_loss, ent_loss, fts, policy
 
 def outer_loop(meta_policy, task_policies, outer_optimizer, hparams):
+    """
+    Performs the outer loop of the meta-training process.
+
+    Args:
+        meta_policy (torch.nn.Module): The meta policy network.
+        task_policies (list): List of task-specific policy networks.
+        outer_optimizer (torch.optim.Optimizer): The optimizer for updating the meta policy.
+        hparams (Namespace): Hyperparameters for the training process.
+
+    Returns:
+        None
+    """
     # Update the meta policy using reptile
-    update_number = hparams.graph_number*hparams.num_task_episodes/hparams.inner_batch_size
+    update_number = hparams.graph_number * hparams.num_task_episodes / hparams.inner_batch_size
     outer_optimizer.zero_grad()
     for i in range(hparams.meta_batch_size):
         for core_param, task_param in zip(meta_policy.parameters(), task_policies[i].parameters()):
