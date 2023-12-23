@@ -13,7 +13,6 @@ class OffloadingTask(object):
         self.heft_score = heft_score
         self.all_locally_execute = 0.0
         self.all_mec_execute = 0.0
-        self.max_depth = 0
 
     def print_task(self):
         print("task id name: {}, task type name: {} task processing data size: {}, "
@@ -103,10 +102,6 @@ class OffloadingDotParser(object):
 
         for id, depth in ids_to_depth.items():
             self.task_list[id].depth = depth
-        # calculate max depth
-        max_depth = max(ids_to_depth.values())
-        for id, depth in ids_to_depth.items():
-            self.task_list[id].max_depth = max_depth
 
     def generate_task_list(self):
         return self.task_list
@@ -185,8 +180,7 @@ class OffloadingTaskGraph(object):
         for i in range(self.task_number):
             norm_processing_data_size = self.norm_feature(self.task_list[i].processing_data_size, self.max_data_size, self.min_data_size)
             norm_transmission_data_size = self.norm_feature(self.task_list[i].transmission_data_size, self.max_data_size, self.min_data_size)
-            norm_depth = self.norm_feature(self.task_list[i].depth, self.task_list[i].max_depth, 0)
-            norm_data_size_list = [norm_processing_data_size, norm_transmission_data_size, norm_depth]
+            norm_data_size_list = [norm_processing_data_size, norm_transmission_data_size]
             # heft_score = [self.task_list[i].heft_score]
 
             pre_task_index_set = []
