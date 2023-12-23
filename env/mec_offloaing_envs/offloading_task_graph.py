@@ -162,7 +162,7 @@ class OffloadingTaskGraph(object):
             self.dependency[i][i] = task_list[i].processing_data_size
 
     def norm_feature(self, data_size, max_size, min_size):
-        return float(data_size - max_size) / float(max_size - min_size)
+        return float(data_size - min_size) / float(max_size - min_size)
 
     def add_dependency(self, pre_task_index, succ_task_index, transmission_cost):
         self.dependency[pre_task_index][succ_task_index] = transmission_cost
