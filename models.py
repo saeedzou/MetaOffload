@@ -109,14 +109,13 @@ class EncoderNetwork(nn.Module):
         return output, hidden
 
 class DecoderNetwork(nn.Module):
-    def __init__(self, output_dim, hidden_dim, num_layers, device='cpu', mode='train'):
+    def __init__(self, output_dim, hidden_dim, num_layers, device='cpu', is_attention=False):
         super(DecoderNetwork, self).__init__()
         self.output_dim = output_dim
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
         self.device = device
-        assert mode in ['train', 'val']
-        self.mode = mode
+        self.is_attention = is_attention
         # Use uniformly initialized embedding layer
         self.embedding = nn.Parameter(torch.FloatTensor(self.output_dim, self.hidden_dim).uniform_(-1.0, 1.0))
         # Use a LSTM to decode the embedded input
@@ -127,10 +126,11 @@ class DecoderNetwork(nn.Module):
         self.critic_head = linear_init(nn.Linear(self.output_dim, self.output_dim))
         # categorical distribution for pi
         self.categorical = Categorical
-        # Luong attention
-        # self.attention = LuongAttention(self.hidden_dim)
-        # # concat
-        # self.concat = nn.Linear(self.hidden_dim * 2, self.hidden_dim)
+        if is_attention:
+            # Luong attention
+            self.attention = LuongAttention(self.hidden_dim)
+            # concat
+            self.concat = nn.Linear(self.hidden_dim * 2, self.hidden_dim)
 
     def forward(self, encoder_outputs, encoder_hidden, actions=None):
         # retrieve batch size
@@ -155,10 +155,7 @@ class DecoderNetwork(nn.Module):
             pi, Q, decoder_hidden = self.forward_step(decoder_input, decoder_hidden, encoder_outputs)
             # sample an action from the action distribution
             if actions is None:
-                if self.mode == 'train':
-                    action = self.categorical(pi).sample()
-                else:
-                    action = pi.argmax(dim=-1)
+                action = self.categorical(pi).sample()
             else:
                 action = actions[:, t].unsqueeze(1).long()
             logprobs[:, t] = self.categorical(pi).log_prob(action).squeeze(1)
@@ -177,9 +174,10 @@ class DecoderNetwork(nn.Module):
     def forward_step(self, x, hidden, encoder_outputs):
         embedded = self.embedding[x]
         output, hidden = self.lstm(embedded, hidden)
-        # attn_context, attn_weights = self.attention(output, encoder_outputs)
-        # output = self.concat(torch.cat((output, attn_context), dim=-1))
-        # output = nn.Tanh()(output)
+        if self.is_attention:
+            attn_context, _ = self.attention(output, encoder_outputs)
+            output = self.concat(torch.cat((output, attn_context), dim=-1))
+            output = nn.Tanh()(output)
         output = self.output_layer(output)
         pi = F.softmax(output, dim=-1)
         Q = self.critic_head(output)
@@ -187,12 +185,13 @@ class DecoderNetwork(nn.Module):
 
 
 class BaselineSeq2Seq(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', mode='train'):
+    def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False):
         super(BaselineSeq2Seq, self).__init__()
         self.embedding = linear_init(nn.Linear(input_dim, hidden_dim))
         self.encoder = EncoderNetwork(input_dim, hidden_dim, num_layers)
-        self.decoder = DecoderNetwork(output_dim, hidden_dim, num_layers, device, mode)
+        self.decoder = DecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention)
         self.dist = self.decoder.categorical
+        self.is_attention = is_attention
 
     def forward(self, x, decoder_inputs=None):
         x = self.embedding(x)
@@ -207,14 +206,15 @@ class BaselineSeq2Seq(nn.Module):
         return values, logprobs, entropies
 
 class GraphSeq2Seq(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', mode='train'):
+    def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False):
         super(GraphSeq2Seq, self).__init__()
         self.graph_embedding = GCN(input_dim, hidden_dim)
         self.point_embedding = linear_init(nn.Linear(input_dim, hidden_dim))
         self.aggregation = linear_init(nn.Linear(hidden_dim * 2, hidden_dim))
         self.encoder = EncoderNetwork(input_dim, hidden_dim, num_layers)
-        self.decoder = DecoderNetwork(output_dim, hidden_dim, num_layers, device, mode)
+        self.decoder = DecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention)
         self.dist = self.decoder.categorical
+        self.is_attention = is_attention
 
     def forward(self, x, adj, decoder_inputs=None):
         x_g = self.graph_embedding(x, adj)
