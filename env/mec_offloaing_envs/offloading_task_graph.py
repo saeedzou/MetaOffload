@@ -188,14 +188,14 @@ class OffloadingTaskGraph(object):
 
             for pre_task_index in range(0, i):
                 if self.dependency[pre_task_index][i] > 0.1:
-                    pre_task_index_set.append(pre_task_index/self.task_number)
+                    pre_task_index_set.append(pre_task_index)
 
             while (len(pre_task_index_set) < 6):
                 pre_task_index_set.append(-1.0)
 
             for succs_task_index in range(i + 1, self.task_number):
                 if self.dependency[i][succs_task_index] > 0.1:
-                    succs_task_index_set.append(succs_task_index/self.task_number)
+                    succs_task_index_set.append(succs_task_index)
 
             while (len(succs_task_index_set) < 6):
                 succs_task_index_set.append(-1.0)
@@ -217,66 +217,64 @@ class OffloadingTaskGraph(object):
 
         return prioritize_point_sequence
 
-    def encode_point_sequence_with_cost(self, resource_cluster):
+    def encode_point_sequence_with_cost(self, resource_cluster, normalize=False):
         point_sequence = []
-        for i in range(self.task_number):
-            task = self.task_list[i]
-            max_running_time = max(resource_cluster.locally_execution_cost(self.max_data_size),
-                                   resource_cluster.up_transmission_cost(self.max_data_size),
-                                   resource_cluster.dl_transmission_cost(self.max_data_size),
-                                   resource_cluster.mec_execution_cost(self.max_data_size))
-            min_running_time = min(resource_cluster.locally_execution_cost(self.min_data_size),
-                                   resource_cluster.up_transmission_cost(self.min_data_size),
-                                   resource_cluster.dl_transmission_cost(self.min_data_size),
-                                   resource_cluster.mec_execution_cost(self.min_data_size))
+        max_running_time = max(resource_cluster.locally_execution_cost(self.max_data_size),
+                               resource_cluster.up_transmission_cost(self.max_data_size),
+                               resource_cluster.dl_transmission_cost(self.max_data_size),
+                               resource_cluster.mec_execution_cost(self.max_data_size))
+        min_running_time = min(resource_cluster.locally_execution_cost(self.min_data_size),
+                               resource_cluster.up_transmission_cost(self.min_data_size),
+                               resource_cluster.dl_transmission_cost(self.min_data_size),
+                               resource_cluster.mec_execution_cost(self.min_data_size))
+        for i, task in enumerate(self.task_list):
             local_process_cost = task.processing_data_size / resource_cluster.mobile_process_capable
-            local_process_cost = self.norm_feature(local_process_cost, max_running_time, min_running_time)
             up_link_cost = resource_cluster.up_transmission_cost(task.processing_data_size)
-            up_link_cost = self.norm_feature(up_link_cost, max_running_time, min_running_time)
             mec_process_cost = task.processing_data_size / resource_cluster.mec_process_capble
             mec_process_cost = self.norm_feature(mec_process_cost, max_running_time, min_running_time)
             down_link_cost = resource_cluster.dl_transmission_cost(task.transmission_data_size)
-            down_link_cost = self.norm_feature(down_link_cost, max_running_time, min_running_time)
+            
+            task_index = i
+            if normalize:
+                local_process_cost = self.norm_feature(local_process_cost, max_running_time, min_running_time)
+                up_link_cost = self.norm_feature(up_link_cost, max_running_time, min_running_time)
+                down_link_cost = self.norm_feature(down_link_cost, max_running_time, min_running_time)
+                norm_processing_data_size = self.norm_feature(task.processing_data_size, self.max_data_size, self.min_data_size)
+                norm_transmission_data_size = self.norm_feature(task.transmission_data_size, self.max_data_size, self.min_data_size)
+                task_index = i / self.task_number
 
-            norm_processing_data_size = self.norm_feature(task.processing_data_size, self.max_data_size, self.min_data_size)
-            norm_transmission_data_size = self.norm_feature(task.transmission_data_size, self.max_data_size, self.min_data_size)
-
-
-            task_embeding_vector = [i / self.task_number,
-                                    norm_processing_data_size,
-                                    norm_transmission_data_size,
-                                    local_process_cost,
-                                    up_link_cost,
-                                    mec_process_cost,
-                                    down_link_cost]
+            task_embeding_vector = [task_index, local_process_cost, up_link_cost, mec_process_cost, down_link_cost]
+            
+            if normalize:
+                task_embeding_vector += [norm_processing_data_size, norm_transmission_data_size]
 
             pre_task_index_set = []
             succs_task_index_set = []
 
             for pre_task_index in range(0, i):
                 if self.dependency[pre_task_index][i] > 0.1:
-                    pre_task_index_set.append(pre_task_index/self.task_number)
+                    if normalize:
+                        pre_task_index = pre_task_index / self.task_number
+                    pre_task_index_set.append(pre_task_index)
 
-            while (len(pre_task_index_set) < 6):
-                pre_task_index_set.append(-1.0)
+            pre_task_index_set += [-1.0] * (6 - len(pre_task_index_set))
 
             for succs_task_index in range(i + 1, self.task_number):
                 if self.dependency[i][succs_task_index] > 0.1:
-                    succs_task_index_set.append(succs_task_index/self.task_number)
+                    if normalize:
+                        succs_task_index = succs_task_index / self.task_number
+                    succs_task_index_set.append(succs_task_index)
 
-            while (len(succs_task_index_set) < 6):
-                succs_task_index_set.append(-1.0)
-
-            succs_task_index_set = succs_task_index_set[0:6]
-            pre_task_index_set = pre_task_index_set[0:6]
+            succs_task_index_set = succs_task_index_set[:6] + [-1.0] * (6 - len(succs_task_index_set))
+            pre_task_index_set = pre_task_index_set[:6]
 
             point_vector = task_embeding_vector + pre_task_index_set + succs_task_index_set
             point_sequence.append(point_vector)
 
         return point_sequence
 
-    def encode_point_sequence_with_ranking_and_cost(self, sorted_task, resource_cluster):
-        point_sequence = self.encode_point_sequence_with_cost(resource_cluster)
+    def encode_point_sequence_with_ranking_and_cost(self, sorted_task, resource_cluster, normalize=False):
+        point_sequence = self.encode_point_sequence_with_cost(resource_cluster, normalize)
 
         prioritize_point_sequence = []
         for task_id in sorted_task:
