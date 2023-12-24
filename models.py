@@ -78,17 +78,23 @@ class GraphConvolution(nn.Module):
                + str(self.out_features) + ')'
 
 class GCN(nn.Module):
-    def __init__(self, nfeat, nhid, nclass, dropout):
+    def __init__(self, nfeat, nhid):
         super(GCN, self).__init__()
         self.gc1 = GraphConvolution(nfeat, nhid)
-        self.gc2 = GraphConvolution(nhid, nclass)
-        self.dropout = dropout
+        self.bn1 = nn.BatchNorm1d(nhid)
+        self.gc2 = GraphConvolution(nhid, nhid)
+        self.bn2 = nn.BatchNorm1d(nhid)
 
     def forward(self, x, adj):
-        x = F.relu(self.gc1(x, adj))
-        x = F.dropout(x, self.dropout, training=self.training)
+        x = self.gc1(x, adj)
+        x = x.permute(0, 2, 1)
+        x = self.bn1(x)
+        x = x.permute(0, 2, 1)
         x = self.gc2(x, adj)
-        return F.log_softmax(x, dim=1)
+        x = x.permute(0, 2, 1)
+        x = self.bn2(x)
+        x = x.permute(0, 2, 1)
+        return x
 
 class EncoderNetwork(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layers):
@@ -203,19 +209,27 @@ class BaselineSeq2Seq(nn.Module):
 class GraphSeq2Seq(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', mode='train'):
         super(GraphSeq2Seq, self).__init__()
-        self.embedding = GCN(input_dim, hidden_dim, hidden_dim, 0.5)
+        self.graph_embedding = GCN(input_dim, hidden_dim)
+        self.point_embedding = linear_init(nn.Linear(input_dim, hidden_dim))
+        self.aggregation = linear_init(nn.Linear(hidden_dim * 2, hidden_dim))
         self.encoder = EncoderNetwork(input_dim, hidden_dim, num_layers)
         self.decoder = DecoderNetwork(output_dim, hidden_dim, num_layers, device, mode)
         self.dist = self.decoder.categorical
 
     def forward(self, x, adj, decoder_inputs=None):
-        x = self.embedding(x, adj)
+        x_g = self.graph_embedding(x, adj)
+        x_p = self.point_embedding(x)
+        x = torch.cat([x_g, x_p], dim=-1)
+        x = self.aggregation(x)
         encoder_outputs, encoder_hidden = self.encoder(x)
         actions, logprobs, entropies, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
         return actions, logprobs, entropies, values
     
     def evaluate_actions(self, x, adj, decoder_inputs=None):
-        x = self.embedding(x, adj)
+        x_g = self.graph_embedding(x, adj)
+        x_p = self.point_embedding(x)
+        x = torch.cat([x_g, x_p], dim=-1)
+        x = self.aggregation(x)
         encoder_outputs, encoder_hidden = self.encoder(x)
         _, logprobs, entropies, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
         return values, logprobs, entropies
