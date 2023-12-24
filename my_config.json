@@ -21,7 +21,7 @@
 "encoder_units":256,
 "decoder_units":256,
 "num_layers":2,
-"is_attention":false,
+"is_attention":true,
 "device":"cuda",
 "num_task_episodes":20,
 "clip_eps":0.2,
