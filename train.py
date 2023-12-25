@@ -39,7 +39,7 @@ def inner_loop(policy, optimizer, buffer, meta_batch, task_id, hparams):
             policy_loss = -torch.min(obj, obj_clip).mean()
             # compute value loss
             if hparams.vf_is_clipped:
-                v_pred_clipped = v_old + (v_pred - v_old).clamp(-hparams.clip_eps, hparams.clip_eps)
+                v_pred_clipped = v_pred + (v_pred - v_old).clamp(-hparams.clip_eps, hparams.clip_eps)
                 v_loss = 0.5 * torch.max((v_pred - return_).pow(2), (v_pred_clipped - return_).pow(2)).mean()
             else:
                 v_loss = 0.5 * (v_pred - return_).pow(2).mean()
