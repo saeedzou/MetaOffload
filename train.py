@@ -1,6 +1,7 @@
 from tqdm import tqdm
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 def inner_loop(policy, optimizer, buffer, meta_batch, task_id, hparams):
     """
@@ -17,22 +18,25 @@ def inner_loop(policy, optimizer, buffer, meta_batch, task_id, hparams):
     Returns:
         vf_loss (float): The average value function loss.
         pg_loss (float): The average policy gradient loss.
-        ent_loss (float): The average entropy loss.
         fts (list): List of finish times of DAGs.
         policy (Policy): The updated policy network.
     """
-    observations, adjs, actions, logprobs, v_olds, advantages, rewards, returns, fts = buffer.sample(meta_batch, batch_size=hparams.inner_batch_size)
-    vf_loss, pg_loss, ent_loss = [], [], []
+    observations, adjs, actions, logits, v_olds, advantages, rewards, returns, fts = buffer.sample(meta_batch, batch_size=hparams.inner_batch_size)
+    vf_loss, pg_loss = [], []
     # Adapt the policy on the current task
     for step in tqdm(range(hparams.adaptation_steps), desc=f'Adapting task {task_id}', ascii=True, leave=False):
-        for observation, adj, action, logprob, v_old, advantage, return_ in zip(observations, adjs, actions, logprobs, v_olds, advantages, returns):
+        for observation, adj, action, old_logit, v_old, advantage, return_ in zip(observations, adjs, actions, logits, v_olds, advantages, returns):
             # update new task policy using the sampled trajectories
             # compute likelihood ratio
             if hparams.is_graph:
-                v_pred, new_logprobs, new_entropies = policy.evaluate_actions(observation, adj, action)
+                v_pred, new_logit = policy.evaluate_actions(observation, adj, action)
             else:
-                v_pred, new_logprobs, new_entropies = policy.evaluate_actions(observation, action)
-            ratio = torch.exp(new_logprobs - logprob)
+                v_pred, new_logit = policy.evaluate_actions(observation, action)
+            old_logit = F.softmax(old_logit, dim=-1)
+            new_logit = F.softmax(new_logit, dim=-1)
+            new_logit_a = new_logit.gather(-1, action.unsqueeze(-1)).squeeze(-1)
+            old_logit_a = old_logit.gather(-1, action.unsqueeze(-1)).squeeze(-1)
+            ratio = torch.exp(torch.log(new_logit_a) - torch.log(old_logit_a))
             # compute surrogate loss
             obj = ratio * advantage
             obj_clip = ratio.clamp(1.0 - hparams.clip_eps, 1.0 + hparams.clip_eps) * advantage
@@ -45,11 +49,8 @@ def inner_loop(policy, optimizer, buffer, meta_batch, task_id, hparams):
                 v_loss = 0.5 * (v_pred - return_).pow(2).mean()
             vf_loss.append(v_loss.item())
             pg_loss.append(policy_loss.item())
-            # compute entropy loss
-            entropy_loss = new_entropies.mean()
-            ent_loss.append(entropy_loss.item())
             # compute total loss
-            loss = policy_loss + hparams.vf_coef * v_loss - hparams.ent_coef * entropy_loss
+            loss = policy_loss + hparams.vf_coef * v_loss
             # zero gradient
             optimizer.zero_grad()
             # compute gradient
@@ -61,8 +62,7 @@ def inner_loop(policy, optimizer, buffer, meta_batch, task_id, hparams):
             optimizer.step()
     vf_loss = np.mean(vf_loss)
     pg_loss = np.mean(pg_loss)
-    ent_loss = np.mean(ent_loss)
-    return vf_loss, pg_loss, ent_loss, fts, policy
+    return vf_loss, pg_loss, fts, policy
 
 def outer_loop(meta_policy, task_policies, outer_optimizer, hparams):
     """

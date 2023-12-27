@@ -142,33 +142,30 @@ class DecoderNetwork(nn.Module):
         # initialize the hidden state of the decoder with the hidden state of the encoder
         decoder_hidden = encoder_hidden
         # initialize the decoder outputs logits
-        pis = torch.zeros(batch_size, decoding_len, self.output_dim, device=self.device)
+        logits = torch.zeros(batch_size, decoding_len, self.output_dim, device=self.device)
         # initialize the decoder outputs Q values
         qvalues = torch.zeros(batch_size, decoding_len, self.output_dim, device=self.device)
         # initialize the decoder outputs action
         decoder_action = torch.zeros(batch_size, decoding_len, device=self.device)
-        logprobs = torch.zeros(batch_size, decoding_len, device=self.device)
-        entropies = torch.zeros(batch_size, decoding_len, device=self.device)
         # loop over the sequence length
         for t in range(decoding_len):
             # get action distribution and Q value
-            pi, Q, decoder_hidden = self.forward_step(decoder_input, decoder_hidden, encoder_outputs)
+            logit, Q, decoder_hidden = self.forward_step(decoder_input, decoder_hidden, encoder_outputs)
             # sample an action from the action distribution
             if actions is None:
-                action = self.categorical(pi).sample()
+                probs = F.softmax(logit, dim=-1)
+                action = self.categorical(probs).sample()
             else:
                 action = actions[:, t].unsqueeze(1).long()
-            logprobs[:, t] = self.categorical(pi).log_prob(action).squeeze(1)
-            entropies[:, t] = self.categorical(pi).entropy().squeeze(1)
             # update the decoder input
             decoder_input = action
             # update the decoder outputs
-            pis[:, t, :] = pi.squeeze(1)
+            logits[:, t, :] = logit.squeeze(1)
             qvalues[:, t, :] = Q.squeeze(1)
             decoder_action[:, t] = action.squeeze(1)
         # V = sum over last dimension of Q * pi
-        values = (qvalues * pis).sum(-1)
-        return decoder_action, logprobs, entropies, values
+        values = (qvalues * logits).sum(-1)
+        return decoder_action, logits, values
 
 
     def forward_step(self, x, hidden, encoder_outputs):
@@ -179,9 +176,8 @@ class DecoderNetwork(nn.Module):
             output = self.concat(torch.cat((output, attn_context), dim=-1))
             output = nn.Tanh()(output)
         output = self.output_layer(output)
-        pi = F.softmax(output, dim=-1)
         Q = self.critic_head(output)
-        return pi, Q, hidden
+        return output, Q, hidden
 
 
 class BaselineSeq2Seq(nn.Module):
@@ -196,14 +192,14 @@ class BaselineSeq2Seq(nn.Module):
     def forward(self, x, decoder_inputs=None):
         x = self.embedding(x)
         encoder_outputs, encoder_hidden = self.encoder(x)
-        actions, logprobs, entropies, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
-        return actions, logprobs, entropies, values
+        actions, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
+        return actions, logits, values
     
     def evaluate_actions(self, x, decoder_inputs=None):
         x = self.embedding(x)
         encoder_outputs, encoder_hidden = self.encoder(x)
-        _, logprobs, entropies, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
-        return values, logprobs, entropies
+        _, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
+        return values, logits
 
 class GraphSeq2Seq(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False):
@@ -222,8 +218,8 @@ class GraphSeq2Seq(nn.Module):
         x = torch.cat([x_g, x_p], dim=-1)
         x = self.aggregation(x)
         encoder_outputs, encoder_hidden = self.encoder(x)
-        actions, logprobs, entropies, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
-        return actions, logprobs, entropies, values
+        actions, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
+        return actions, logits, values
     
     def evaluate_actions(self, x, adj, decoder_inputs=None):
         x_g = self.graph_embedding(x, adj)
@@ -231,5 +227,5 @@ class GraphSeq2Seq(nn.Module):
         x = torch.cat([x_g, x_p], dim=-1)
         x = self.aggregation(x)
         encoder_outputs, encoder_hidden = self.encoder(x)
-        _, logprobs, entropies, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
-        return values, logprobs, entropies
+        _, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
+        return values, logits
