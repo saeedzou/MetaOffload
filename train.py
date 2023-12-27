@@ -34,6 +34,7 @@ def inner_loop(policy, optimizer, buffer, meta_batch, task_id, hparams):
                 v_pred, new_logit = policy.evaluate_actions(observation, action)
             old_logit = F.softmax(old_logit, dim=-1)
             new_logit = F.softmax(new_logit, dim=-1)
+            action = action.type(torch.int64)
             new_logit_a = new_logit.gather(-1, action.unsqueeze(-1)).squeeze(-1)
             old_logit_a = old_logit.gather(-1, action.unsqueeze(-1)).squeeze(-1)
             ratio = torch.exp(torch.log(new_logit_a) - torch.log(old_logit_a))
