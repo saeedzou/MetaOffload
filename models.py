@@ -186,8 +186,6 @@ class BaselineSeq2Seq(nn.Module):
         self.embedding = linear_init(nn.Linear(input_dim, hidden_dim))
         self.encoder = EncoderNetwork(input_dim, hidden_dim, num_layers)
         self.decoder = DecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention)
-        self.dist = self.decoder.categorical
-        self.is_attention = is_attention
 
     def forward(self, x, decoder_inputs=None):
         x = self.embedding(x)
@@ -209,8 +207,6 @@ class GraphSeq2Seq(nn.Module):
         self.aggregation = linear_init(nn.Linear(hidden_dim * 2, hidden_dim))
         self.encoder = EncoderNetwork(input_dim, hidden_dim, num_layers)
         self.decoder = DecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention)
-        self.dist = self.decoder.categorical
-        self.is_attention = is_attention
 
     def forward(self, x, adj, decoder_inputs=None):
         x_g = self.graph_embedding(x, adj)
