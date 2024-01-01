@@ -121,9 +121,9 @@ class DecoderNetwork(nn.Module):
         # Use a LSTM to decode the embedded input
         self.lstm = recurrent_init(nn.LSTM(self.hidden_dim, self.hidden_dim, self.num_layers, batch_first=True))
         # output projection layer
-        self.output_layer = linear_init(nn.Linear(self.hidden_dim, self.output_dim, bias=False))
+        self.actor_head = linear_init(nn.Linear(self.hidden_dim, self.output_dim))
         # Use a FC layer for critic head (Q)
-        self.critic_head = linear_init(nn.Linear(self.output_dim, self.output_dim))
+        self.critic_head = linear_init(nn.Linear(self.hidden_dim, self.output_dim))
         # categorical distribution for pi
         self.categorical = Categorical
         if is_attention:
@@ -153,8 +153,7 @@ class DecoderNetwork(nn.Module):
             logit, Q, decoder_hidden = self.forward_step(decoder_input, decoder_hidden, encoder_outputs)
             # sample an action from the action distribution
             if actions is None:
-                probs = F.softmax(logit, dim=-1)
-                action = self.categorical(probs).sample()
+                action = self.categorical(logit).sample()
             else:
                 action = actions[:, t].unsqueeze(1).long()
             # update the decoder input
@@ -175,9 +174,9 @@ class DecoderNetwork(nn.Module):
             attn_context, _ = self.attention(output, encoder_outputs)
             output = self.concat(torch.cat((output, attn_context), dim=-1))
             output = nn.Tanh()(output)
-        output = self.output_layer(output)
+        pi = F.softmax(self.actor_head(output), dim=-1)
         Q = self.critic_head(output)
-        return output, Q, hidden
+        return pi, Q, hidden
 
 
 class BaselineSeq2Seq(nn.Module):
