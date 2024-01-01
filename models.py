@@ -81,19 +81,11 @@ class GCN(nn.Module):
     def __init__(self, nfeat, nhid):
         super(GCN, self).__init__()
         self.gc1 = GraphConvolution(nfeat, nhid)
-        self.bn1 = nn.BatchNorm1d(nhid)
         self.gc2 = GraphConvolution(nhid, nhid)
-        self.bn2 = nn.BatchNorm1d(nhid)
 
     def forward(self, x, adj):
         x = self.gc1(x, adj)
-        x = x.permute(0, 2, 1)
-        x = self.bn1(x)
-        x = x.permute(0, 2, 1)
         x = self.gc2(x, adj)
-        x = x.permute(0, 2, 1)
-        x = self.bn2(x)
-        x = x.permute(0, 2, 1)
         return x
 
 class EncoderNetwork(nn.Module):
