@@ -241,7 +241,6 @@ class OffloadingTaskGraph(object):
                 down_link_cost = self.norm_feature(down_link_cost, max_running_time, min_running_time)
                 norm_processing_data_size = self.norm_feature(task.processing_data_size, self.max_data_size, self.min_data_size)
                 norm_transmission_data_size = self.norm_feature(task.transmission_data_size, self.max_data_size, self.min_data_size)
-                task_index = i / self.task_number
 
             task_embeding_vector = [task_index, local_process_cost, up_link_cost, mec_process_cost, down_link_cost]
             
@@ -253,16 +252,12 @@ class OffloadingTaskGraph(object):
 
             for pre_task_index in range(0, i):
                 if self.dependency[pre_task_index][i] > 0.1:
-                    if normalize:
-                        pre_task_index = pre_task_index / self.task_number
                     pre_task_index_set.append(pre_task_index)
 
             pre_task_index_set += [-1.0] * (6 - len(pre_task_index_set))
 
             for succs_task_index in range(i + 1, self.task_number):
                 if self.dependency[i][succs_task_index] > 0.1:
-                    if normalize:
-                        succs_task_index = succs_task_index / self.task_number
                     succs_task_index_set.append(succs_task_index)
 
             succs_task_index_set = succs_task_index_set[:6] + [-1.0] * (6 - len(succs_task_index_set))
