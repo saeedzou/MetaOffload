@@ -3,6 +3,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+torch.manual_seed(1)
+np.random.seed(1)
+
 def inner_loop(policy, optimizer, buffer, meta_batch, task_id, hparams):
     """
     Executes the inner loop of the meta-training process.

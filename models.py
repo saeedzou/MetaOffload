@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch.distributions import Categorical
 import math
 
+torch.manual_seed(1)
 
 def linear_init(module):
     if isinstance(module, nn.Linear):
