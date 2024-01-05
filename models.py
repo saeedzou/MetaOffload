@@ -26,10 +26,10 @@ def recurrent_init(module):
     return module
 
 class LuongAttention(nn.Module):
-    def __init__(self, hidden_dim):
+    def __init__(self, hidden_dim, bias=True):
         super(LuongAttention, self).__init__()
         self.hidden_dim = hidden_dim
-        self.attention = linear_init(nn.Linear(self.hidden_dim, self.hidden_dim))
+        self.attention = linear_init(nn.Linear(self.hidden_dim, self.hidden_dim, bias=bias))
 
     def forward(self, decoder_hidden, encoder_outputs):
         # decoder_hidden: [batch_size, 1, hidden_dim]
@@ -113,15 +113,15 @@ class BaseDecoderNetwork(nn.Module):
         self.is_attention = is_attention
         # Use uniformly initialized embedding layer
         self.embedding = nn.Parameter(torch.FloatTensor(self.output_dim, self.hidden_dim).uniform_(-1.0, 1.0))
-        self.lstm = recurrent_init(nn.LSTM(self.hidden_dim, self.hidden_dim, self.num_layers, batch_first=True))
+        self.lstm = recurrent_init(nn.LSTM(self.hidden_dim * 2 if is_attention else self.hidden_dim, self.hidden_dim, self.num_layers, batch_first=True))
         # output projection layer
         self.output_layer = linear_init(nn.Linear(self.hidden_dim, self.output_dim, bias=False))
-        self.critic_head = linear_init(nn.Linear(self.hidden_dim, self.output_dim))
+        self.critic_head = linear_init(nn.Linear(self.output_dim, self.output_dim))
         # categorical distribution for pi
         self.categorical = Categorical
         if is_attention:
-            self.attention = LuongAttention(self.hidden_dim)
-            self.concat = nn.Linear(self.hidden_dim * 2, self.hidden_dim)
+            self.attention = LuongAttention(self.hidden_dim, bias=False)
+            self.concat = nn.Linear(self.hidden_dim * 2, self.hidden_dim, bias=False)
 
     def forward(self, encoder_outputs, encoder_hidden, actions=None):
         batch_size = encoder_outputs.size(0)
@@ -133,14 +133,14 @@ class BaseDecoderNetwork(nn.Module):
         logits = torch.zeros(batch_size, decoding_len, self.output_dim, device=self.device)
         qvalues = torch.zeros(batch_size, decoding_len, self.output_dim, device=self.device)
         decoder_action = torch.zeros(batch_size, decoding_len, device=self.device)
+        context = torch.zeros(batch_size, 1, self.hidden_dim, device=self.device)
         # loop over the sequence length
         for t in range(decoding_len):
             # get action distribution and Q value
-            logit, Q, decoder_hidden = self.forward_step(decoder_input, decoder_hidden, encoder_outputs)
+            logit, Q, decoder_hidden, context = self.forward_step(decoder_input, decoder_hidden, encoder_outputs, context)
             # sample an action from the action distribution
             if actions is None:
-                probs = F.softmax(logit, dim=-1)
-                action = self.categorical(probs).sample()
+                action = self.categorical(logit).sample()
             else:
                 action = actions[:, t].unsqueeze(1).long()
             # update the decoder input
@@ -154,17 +154,20 @@ class BaseDecoderNetwork(nn.Module):
         return decoder_action, logits, values
 
 
-    def forward_step(self, x, hidden, encoder_outputs):
+    def forward_step(self, x, hidden, encoder_outputs, context):
         embedded = self.embedding[x]
+        if self.is_attention:
+            attn_context, _ = self.attention(context, encoder_outputs)
+            embedded = torch.cat((embedded, attn_context), dim=-1)
         output, hidden = self.lstm(embedded, hidden)
         if self.is_attention:
-            attn_context, _ = self.attention(output, encoder_outputs)
-            output = self.concat(torch.cat((output, attn_context), dim=-1))
+            context, _ = self.attention(output, encoder_outputs)
+            output = self.concat(torch.cat((output, context), dim=-1))
             output = nn.Tanh()(output)
         output = self.output_layer(output)
         pi = F.softmax(output, dim=-1)
         Q = self.critic_head(output)
-        return pi, Q, hidden
+        return pi, Q, hidden, context
 
 
 class DecoderNetwork(nn.Module):
@@ -178,7 +181,7 @@ class DecoderNetwork(nn.Module):
         # Use uniformly initialized embedding layer
         self.embedding = nn.Parameter(torch.FloatTensor(self.output_dim, self.hidden_dim).uniform_(-1.0, 1.0))
         self.embedding_norm = nn.LayerNorm(self.hidden_dim)
-        self.lstm = recurrent_init(nn.LSTM(self.hidden_dim, self.hidden_dim, self.num_layers, batch_first=True))
+        self.lstm = recurrent_init(nn.LSTM(self.hidden_dim * 2 if is_attention else self.hidden_dim, self.hidden_dim, self.num_layers, batch_first=True))
         self.lstm_norm = nn.LayerNorm(self.hidden_dim)
         self.actor_head = linear_init(nn.Linear(self.hidden_dim, self.output_dim))
         self.critic_head = linear_init(nn.Linear(self.hidden_dim, self.output_dim))
@@ -198,10 +201,11 @@ class DecoderNetwork(nn.Module):
         logits = torch.zeros(batch_size, decoding_len, self.output_dim, device=self.device)
         qvalues = torch.zeros(batch_size, decoding_len, self.output_dim, device=self.device)
         decoder_action = torch.zeros(batch_size, decoding_len, device=self.device)
+        context = torch.zeros(batch_size, 1, self.hidden_dim, device=self.device)
         # loop over the sequence length
         for t in range(decoding_len):
             # get action distribution and Q value
-            logit, Q, decoder_hidden = self.forward_step(decoder_input, decoder_hidden, encoder_outputs)
+            logit, Q, decoder_hidden, context = self.forward_step(decoder_input, decoder_hidden, encoder_outputs, context)
             # sample an action from the action distribution
             if actions is None:
                 action = self.categorical(logit).sample()
@@ -216,18 +220,21 @@ class DecoderNetwork(nn.Module):
         return decoder_action, logits, values
 
 
-    def forward_step(self, x, hidden, encoder_outputs):
+    def forward_step(self, x, hidden, encoder_outputs, context):
         embedded = self.embedding[x]
         embedded = self.embedding_norm(embedded)
+        if self.is_attention:
+            attn_context, _ = self.attention(context, encoder_outputs)
+            embedded = torch.cat((embedded, attn_context), dim=-1)
         output, hidden = self.lstm(embedded, hidden)
         output = self.lstm_norm(output)
         if self.is_attention:
-            attn_context, _ = self.attention(output, encoder_outputs)
-            output = self.concat(torch.cat((output, attn_context), dim=-1))
+            context, _ = self.attention(output, encoder_outputs)
+            output = self.concat(torch.cat((output, context), dim=-1))
             output = nn.Tanh()(output)
         pi = F.softmax(self.actor_head(output), dim=-1)
         Q = self.critic_head(output)
-        return pi, Q, hidden
+        return pi, Q, hidden, context
 
 
 class BaselineSeq2Seq(nn.Module):
