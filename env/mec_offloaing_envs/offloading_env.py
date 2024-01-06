@@ -246,6 +246,10 @@ class OffloadingEnvironment(MetaEnv):
                 task_encode = np.array(task_graph.encode_point_sequence_with_ranking_and_cost(scheduling_sequence, self.resource_cluster, normalize=False), dtype=np.float32)
             elif encoding == 'rank_cost_norm':
                 task_encode = np.array(task_graph.encode_point_sequence_with_ranking_and_cost(scheduling_sequence, self.resource_cluster, normalize=True), dtype=np.float32)
+            elif encoding == 'graph':
+                task_encode = np.array(task_graph.encode_point_sequence_for_graph(scheduling_sequence, self.resource_cluster, normalize=False), dtype=np.float32)
+            elif encoding == 'graph_norm':
+                task_encode = np.array(task_graph.encode_point_sequence_for_graph(scheduling_sequence, self.resource_cluster, normalize=True), dtype=np.float32)
             else:
                 raise ValueError("Encoding method {} is not supported".format(encoding))
             adjacency_matrix = task_graph.dependency

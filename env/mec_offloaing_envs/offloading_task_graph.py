@@ -268,6 +268,48 @@ class OffloadingTaskGraph(object):
 
         return point_sequence
 
+    def encode_point_sequence_for_single_graph(self, resource_cluster, normalize=False):
+        point_sequence = []
+        max_running_time = max(resource_cluster.locally_execution_cost(self.max_data_size),
+                               resource_cluster.up_transmission_cost(self.max_data_size),
+                               resource_cluster.dl_transmission_cost(self.max_data_size),
+                               resource_cluster.mec_execution_cost(self.max_data_size))
+        min_running_time = min(resource_cluster.locally_execution_cost(self.min_data_size),
+                               resource_cluster.up_transmission_cost(self.min_data_size),
+                               resource_cluster.dl_transmission_cost(self.min_data_size),
+                               resource_cluster.mec_execution_cost(self.min_data_size))
+        for i, task in enumerate(self.task_list):
+            local_process_cost = task.processing_data_size / resource_cluster.mobile_process_capable
+            up_link_cost = resource_cluster.up_transmission_cost(task.processing_data_size)
+            mec_process_cost = task.processing_data_size / resource_cluster.mec_process_capble
+            mec_process_cost = self.norm_feature(mec_process_cost, max_running_time, min_running_time)
+            down_link_cost = resource_cluster.dl_transmission_cost(task.transmission_data_size)
+            processing_data_size = task.processing_data_size
+            transmission_data_size = task.transmission_data_size
+            if normalize:
+                local_process_cost = self.norm_feature(local_process_cost, max_running_time, min_running_time)
+                up_link_cost = self.norm_feature(up_link_cost, max_running_time, min_running_time)
+                down_link_cost = self.norm_feature(down_link_cost, max_running_time, min_running_time)
+                processing_data_size = self.norm_feature(processing_data_size, self.max_data_size, self.min_data_size)
+                transmission_data_size = self.norm_feature(transmission_data_size, self.max_data_size, self.min_data_size)
+
+            task_embeding_vector = [local_process_cost, up_link_cost, mec_process_cost, down_link_cost]
+            
+            task_embeding_vector += [processing_data_size, transmission_data_size]
+
+            point_sequence.append(task_embeding_vector)
+
+        return point_sequence
+
+    def encode_point_sequence_for_graph(self, sorted_task, resource_cluster, normalize=False):
+        point_sequence = self.encode_point_sequence_for_single_graph(resource_cluster, normalize)
+
+        prioritize_point_sequence = []
+        for task_id in sorted_task:
+            prioritize_point_sequence.append(point_sequence[task_id])
+
+        return prioritize_point_sequence
+
     def encode_point_sequence_with_ranking_and_cost(self, sorted_task, resource_cluster, normalize=False):
         point_sequence = self.encode_point_sequence_with_cost(resource_cluster, normalize)
 
