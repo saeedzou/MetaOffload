@@ -171,13 +171,16 @@ class GraphAttentionLayerV2(nn.Module):
             self.n_hidden = self.out_features
 
         self.W_l = nn.Parameter(torch.FloatTensor(size=(in_features, self.n_hidden * n_heads)))
+        nn.init.xavier_uniform_(self.W_l.data, gain=1.414)
 
         if share_weights:
             self.W_r = self.W_l
         else:
             self.W_r = nn.Parameter(torch.FloatTensor(size=(in_features, self.n_hidden * n_heads)))
+            nn.init.xavier_uniform_(self.W_r.data, gain=1.414)
         
         self.a = nn.Parameter(torch.FloatTensor(size=(self.n_hidden, 1)))
+        nn.init.xavier_uniform_(self.a.data, gain=1.414)
 
         self.leaky_relu = nn.LeakyReLU(self.leaky_relu_slope)
 
