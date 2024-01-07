@@ -156,6 +156,85 @@ class GAT(nn.Module):
         x = self.output_layer(x, adj)
         return x
 
+class GraphAttentionLayerV2(nn.Module):
+    def __init__(self, in_features, out_features, n_heads, concat=True, leaky_relu_slope=0.2, share_weights=False):
+        super(GraphAttentionLayerV2, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.concat = concat
+        self.leaky_relu_slope = leaky_relu_slope
+        self.n_heads = n_heads
+        if self.concat:
+            assert self.out_features % n_heads == 0
+            self.n_hidden = self.out_features // n_heads
+        else:
+            self.n_hidden = self.out_features
+
+        self.W_l = nn.Parameter(torch.FloatTensor(size=(in_features, self.n_hidden * n_heads)))
+
+        if share_weights:
+            self.W_r = self.W_l
+        else:
+            self.W_r = nn.Parameter(torch.FloatTensor(size=(in_features, self.n_hidden * n_heads)))
+        
+        self.a = nn.Parameter(torch.FloatTensor(size=(self.n_hidden, 1)))
+
+        self.leaky_relu = nn.LeakyReLU(self.leaky_relu_slope)
+
+    def forward(self, h, adj):
+        # h.shape (B, N, in_feature)
+        # adj.shape (B, N, N)
+        # W.shape (in_feature, out_feature)
+        Wh_l = (h @ self.W_l)
+        Wh_r = (h @ self.W_r)
+        # Wh.shape (B, N, out_feature)
+        Wh_l = Wh_l.view(-1, self.n_heads, h.shape[1], self.n_hidden)
+        Wh_r = Wh_r.view(-1, self.n_heads, h.shape[1], self.n_hidden)
+        # Wh.shape (B, n_heads, N, n_hidden)
+        # apply leaky relu before attention
+        Wh_l = self.leaky_relu(Wh_l)
+        Wh_r = self.leaky_relu(Wh_r)
+        e = (Wh_l @ self.a) + (Wh_r @ self.a).transpose(2, 3)
+        # e.shape (B, n_heads, N, N)
+        zero_vec = -9e15*torch.ones_like(e)
+        # adj.shape (B, N, N)
+        attention = torch.where(adj.unsqueeze(1) > 0, e, zero_vec)
+        # attention.shape (B, n_heads, N, N)
+        attention = F.softmax(attention, dim=-1)
+        # attention.shape (B, n_heads, N, N)
+        h_prime = torch.matmul(attention, Wh_r)
+        # h_prime.shape (B, n_heads, N, n_hidden)
+        if self.concat:
+            # h_prime.shape (B, N, n_hidden * n_heads)
+            h_prime = h_prime.view(-1, h.shape[1], self.out_features)
+            return F.elu(h_prime)
+        else:
+            # take the average of the heads
+            # h_prime.shape (B, N, n_hidden)
+            h_prime = h_prime.mean(dim=1)
+            return F.elu(h_prime)
+
+    def __repr__(self):
+        return self.__class__.__name__ + ' (' \
+               + str(self.in_features) + ' -> ' \
+               + str(self.out_features) + ')'
+    
+
+class GATV2(nn.Module):
+    def __init__(self, nfeat, nhid, nheads=8):
+        super(GATV2, self).__init__()
+        self.gat_layer = GraphAttentionLayerV2(nfeat, nhid, nheads, concat=True)
+        self.gn1 = GraphNorm(nfeat, affine=True)
+        self.output_layer = GraphAttentionLayerV2(nhid, nhid, 1, concat=False)
+        self.gn2 = GraphNorm(nhid, affine=True)
+
+    def forward(self, x, adj):
+        x = self.gn1(x)
+        x = self.gat_layer(x, adj)
+        x = self.gn2(x)
+        x = self.output_layer(x, adj)
+        return x
+
 class GraphConvolution(nn.Module):
     """
     Simple GCN layer, similar to https://arxiv.org/abs/1609.02907
