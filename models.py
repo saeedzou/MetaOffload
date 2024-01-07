@@ -43,6 +43,41 @@ class LuongAttention(nn.Module):
         attn_context = torch.bmm(attn_weights, encoder_outputs)
         return attn_context, attn_weights
 
+class GraphNorm(nn.Module):
+    def __init__(self, num_features, eps=1e-5, affine=True):
+        super(GraphNorm, self).__init__()
+        self.num_features = num_features
+        self.eps = eps
+        self.affine = affine
+        if self.affine:
+            self.scale = nn.Parameter(torch.FloatTensor(num_features))
+            self.shift = nn.Parameter(torch.FloatTensor(num_features))
+        else:
+            self.register_parameter('scale', None)
+            self.register_parameter('shift', None)
+        self.alpha = nn.Parameter(torch.FloatTensor(num_features))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        if self.affine:
+            nn.init.ones_(self.scale)
+            nn.init.zeros_(self.shift)
+        nn.init.ones_(self.alpha)
+
+    def forward(self, x):
+        x_shape = x.shape
+        batch_size = x_shape[0]
+        x = x.view(batch_size, self.num_features, -1)
+        mean = x.mean(dim=-1, keepdim=True)
+        mean_x2 = (x ** 2).mean(dim=-1, keepdim=True)
+        var = mean_x2 - mean ** 2
+        x_norm = (x - self.alpha.view(1, -1, 1) * mean) / torch.sqrt(var + self.eps)
+        x_norm = x_norm.view(batch_size, self.num_features, -1)
+        if self.affine:
+            x_norm = self.scale.view(1, -1, 1) * x_norm + self.shift.view(1, -1, 1)
+        return x_norm.view(x_shape)
+        
+
 class GraphConvolution(nn.Module):
     """
     Simple GCN layer, similar to https://arxiv.org/abs/1609.02907
@@ -58,8 +93,8 @@ class GraphConvolution(nn.Module):
         else:
             self.register_parameter('bias', None)
         self.reset_parameters()
-        # Add a LayerNorm layer
-        self.layer_norm = nn.LayerNorm(out_features)
+        # Add a GraphNorm layer
+        self.graph_norm = GraphNorm(in_features, affine=True)
 
     def reset_parameters(self):
         stdv = 1. / math.sqrt(self.weight.size(1))
@@ -68,12 +103,11 @@ class GraphConvolution(nn.Module):
             self.bias.data.uniform_(-stdv, stdv)
 
     def forward(self, x, adj):
+        x = self.graph_norm(x)
         support = x @ self.weight
         output = adj @ support
         if self.bias is not None:
             output += self.bias
-        # Apply layer norm
-        output = self.layer_norm(output)
         return output
 
     def __repr__(self):
