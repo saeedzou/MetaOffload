@@ -293,7 +293,7 @@ class DecoderNetwork(nn.Module):
         self.lstm = recurrent_init(nn.LSTM(self.hidden_dim * 2 if is_attention else self.hidden_dim, self.hidden_dim, self.num_layers, batch_first=True))
         self.lstm_norm = nn.LayerNorm(self.hidden_dim)
         self.actor_head = linear_init(nn.Linear(self.hidden_dim, self.output_dim))
-        self.critic_head = linear_init(nn.Linear(self.hidden_dim, self.output_dim))
+        self.critic_head = linear_init(nn.Linear(self.hidden_dim, 1))
         # categorical distribution for pi
         self.categorical = Categorical
         if is_attention:
@@ -308,13 +308,13 @@ class DecoderNetwork(nn.Module):
         decoder_hidden = encoder_hidden
 
         logits = torch.zeros(batch_size, decoding_len, self.output_dim, device=self.device)
-        qvalues = torch.zeros(batch_size, decoding_len, self.output_dim, device=self.device)
+        values = torch.zeros(batch_size, decoding_len, 1, device=self.device)
         decoder_action = torch.zeros(batch_size, decoding_len, device=self.device)
         context = torch.zeros(batch_size, 1, self.hidden_dim, device=self.device)
         # loop over the sequence length
         for t in range(decoding_len):
             # get action distribution and Q value
-            logit, Q, decoder_hidden, context = self.forward_step(decoder_input, decoder_hidden, encoder_outputs, context)
+            logit, value, decoder_hidden, context = self.forward_step(decoder_input, decoder_hidden, encoder_outputs, context)
             # sample an action from the action distribution
             if actions is None:
                 action = self.categorical(logit).sample()
@@ -322,10 +322,9 @@ class DecoderNetwork(nn.Module):
                 action = actions[:, t].unsqueeze(1).long()
             decoder_input = action
             logits[:, t, :] = logit.squeeze(1)
-            qvalues[:, t, :] = Q.squeeze(1)
+            values[:, t, :] = value.squeeze(1)
             decoder_action[:, t] = action.squeeze(1)
-        # V = sum over last dimension of Q * pi
-        values = (qvalues * logits).sum(-1)
+        values = values.squeeze(-1)
         return decoder_action, logits, values
 
 
@@ -342,8 +341,8 @@ class DecoderNetwork(nn.Module):
             output = self.concat(torch.cat((output, context), dim=-1))
             output = nn.Tanh()(output)
         pi = F.softmax(self.actor_head(output), dim=-1)
-        Q = self.critic_head(output)
-        return pi, Q, hidden, context
+        value = self.critic_head(output)
+        return pi, value, hidden, context
 
 
 class BaselineSeq2Seq(nn.Module):
