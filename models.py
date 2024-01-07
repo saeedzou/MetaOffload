@@ -226,10 +226,10 @@ class GraphAttentionLayerV2(nn.Module):
 class GATV2(nn.Module):
     def __init__(self, nfeat, nhid, nheads=8):
         super(GATV2, self).__init__()
-        self.gat_layer = GraphAttentionLayerV2(nfeat, nhid, nheads, concat=True)
+        self.gat_layer = GraphAttentionLayerV2(nfeat, nhid//2, nheads, concat=True)
         self.gn1 = GraphNorm(nfeat, affine=True)
-        self.output_layer = GraphAttentionLayerV2(nhid, nhid, 1, concat=False)
-        self.gn2 = GraphNorm(nhid, affine=True)
+        self.output_layer = GraphAttentionLayerV2(nhid//2, nhid, 1, concat=False)
+        self.gn2 = GraphNorm(nhid//2, affine=True)
 
     def forward(self, x, adj):
         x = self.gn1(x)
@@ -253,8 +253,6 @@ class GraphConvolution(nn.Module):
         else:
             self.register_parameter('bias', None)
         self.reset_parameters()
-        # Add a GraphNorm layer
-        self.graph_norm = GraphNorm(in_features, affine=True)
 
     def reset_parameters(self):
         stdv = 1. / math.sqrt(self.weight.size(1))
@@ -263,7 +261,6 @@ class GraphConvolution(nn.Module):
             self.bias.data.uniform_(-stdv, stdv)
 
     def forward(self, x, adj):
-        x = self.graph_norm(x)
         support = x @ self.weight
         output = adj @ support
         if self.bias is not None:
@@ -279,10 +276,14 @@ class GCN(nn.Module):
     def __init__(self, nfeat, nhid):
         super(GCN, self).__init__()
         self.gc1 = GraphConvolution(nfeat, nhid//2)
+        self.gn1 = GraphNorm(nfeat)
         self.gc2 = GraphConvolution(nhid//2, nhid)
+        self.gn2 = GraphNorm(nhid//2)
 
     def forward(self, x, adj):
+        x = self.gn1(x)
         x = F.relu(self.gc1(x, adj))
+        x = self.gn2(x)
         x = self.gc2(x, adj)
         return x
 
@@ -453,20 +454,25 @@ class BaselineSeq2Seq(nn.Module):
 class GraphSeq2Seq(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False):
         super(GraphSeq2Seq, self).__init__()
-        self.graph_embedding = GAT(input_dim, hidden_dim)
+        self.gat = GATV2(input_dim, hidden_dim)
+        self.gcn = GCN(input_dim, hidden_dim)
         self.encoder = EncoderNetwork(input_dim, hidden_dim, num_layers)
         self.encoder_norm = nn.LayerNorm(hidden_dim)
         self.decoder = DecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention)
 
     def forward(self, x, adj, decoder_inputs=None):
-        x = self.graph_embedding(x, adj)
+        x1 = self.gat(x, adj)
+        x2 = self.gcn(x, adj)
+        x = x1 + x2
         encoder_outputs, encoder_hidden = self.encoder(x)
         encoder_outputs = self.encoder_norm(encoder_outputs)
         actions, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
         return actions, logits, values
     
     def evaluate_actions(self, x, adj, decoder_inputs=None):
-        x = self.graph_embedding(x, adj)
+        x1 = self.gat(x, adj)
+        x2 = self.gcn(x, adj)
+        x = x1 + x2
         encoder_outputs, encoder_hidden = self.encoder(x)
         encoder_outputs = self.encoder_norm(encoder_outputs)
         _, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
