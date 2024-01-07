@@ -76,7 +76,81 @@ class GraphNorm(nn.Module):
         if self.affine:
             x_norm = self.scale.view(1, -1, 1) * x_norm + self.shift.view(1, -1, 1)
         return x_norm.view(x_shape)
+
+class GraphAttentionLayer(nn.Module):
+    def __init__(self, in_features, out_features, n_heads, concat=True, leaky_relu_slope=0.2):
+        super(GraphAttentionLayer, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.concat = concat
+        self.leaky_relu_slope = leaky_relu_slope
+        self.n_heads = n_heads
+        if self.concat:
+            assert self.out_features % n_heads == 0
+            self.n_hidden = self.out_features // n_heads
+        else:
+            self.n_hidden = self.out_features
+
+        self.W = nn.Parameter(torch.FloatTensor(size=(in_features, self.n_hidden * n_heads)))
+        nn.init.xavier_uniform_(self.W.data, gain=1.414)
+        self.a = nn.Parameter(torch.FloatTensor(size=(2*self.n_hidden, 1)))
+        nn.init.xavier_uniform_(self.a.data, gain=1.414)
         
+        self.leaky_relu = nn.LeakyReLU(self.leaky_relu_slope)
+
+    def forward(self, h, adj):
+        # h.shape (B, N, in_feature)
+        # adj.shape (B, N, N)
+        # W.shape (in_feature, out_feature)
+        Wh = (h @ self.W)
+        # Wh.shape (B, N, out_feature)
+        Wh = Wh.view(-1, self.n_heads, h.shape[1], self.n_hidden)
+        # Wh.shape (B, n_heads, N, n_hidden)
+        e = self._prepare_attentional_mechanism_input(Wh)
+        # e.shape (B, n_heads, N, N)
+        zero_vec = -9e15*torch.ones_like(e)
+        # adj.shape (B, N, N)
+        attention = torch.where(adj.unsqueeze(1) > 0, e, zero_vec)
+        # attention.shape (B, n_heads, N, N)
+        attention = F.softmax(attention, dim=-1)
+        # attention.shape (B, n_heads, N, N)
+        h_prime = torch.matmul(attention, Wh)
+        # h_prime.shape (B, n_heads, N, n_hidden)
+        if self.concat:
+            # h_prime.shape (B, N, n_hidden * n_heads)
+            h_prime = h_prime.view(-1, h.shape[1], self.out_features)
+            return F.elu(h_prime)
+        else:
+            # take the average of the heads
+            # h_prime.shape (B, N, n_hidden)
+            h_prime = h_prime.mean(dim=1)
+            return F.elu(h_prime)
+
+    def _prepare_attentional_mechanism_input(self, Wh):
+        # Wh.shape (B, n_heads, N, n_hidden)
+        # self.a.shape (2 * n_hidden, 1)
+        # Wh1&2.shape (B, n_heads, N, 1)
+        # e.shape (B, n_heads, N, N)
+        Wh1 = Wh @ self.a[:self.n_hidden, :]
+        Wh2 = Wh @ self.a[self.n_hidden:, :]
+        e = Wh1 + Wh2.transpose(2, 3)
+        return self.leaky_relu(e)
+    
+    def __repr__(self):
+        return self.__class__.__name__ + ' (' \
+               + str(self.in_features) + ' -> ' \
+               + str(self.out_features) + ')'
+
+class GAT(nn.Module):
+    def __init__(self, nfeat, nhid, nheads=8):
+        super(GAT, self).__init__()
+        self.gat_layer = GraphAttentionLayer(nfeat, nhid, nheads, concat=True)
+        self.graph_norm = GraphNorm(nfeat, affine=True)
+
+    def forward(self, x, adj):
+        x = self.graph_norm(x)
+        x = self.gat_layer(x, adj)
+        return x
 
 class GraphConvolution(nn.Module):
     """
@@ -294,7 +368,7 @@ class BaselineSeq2Seq(nn.Module):
 class GraphSeq2Seq(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False):
         super(GraphSeq2Seq, self).__init__()
-        self.graph_embedding = GCN(input_dim, hidden_dim)
+        self.graph_embedding = GAT(input_dim, hidden_dim)
         self.point_embedding = linear_init(nn.Linear(input_dim, hidden_dim))
         self.point_embedding_norm = nn.LayerNorm(hidden_dim)
         self.aggregation = linear_init(nn.Linear(hidden_dim * 2, hidden_dim))
