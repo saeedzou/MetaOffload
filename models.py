@@ -27,7 +27,7 @@ def recurrent_init(module):
     return module
 
 class LuongAttention(nn.Module):
-    def __init__(self, hidden_dim, bias=True):
+    def __init__(self, hidden_dim, bias=False):
         super(LuongAttention, self).__init__()
         self.hidden_dim = hidden_dim
         self.attention = linear_init(nn.Linear(self.hidden_dim, self.hidden_dim, bias=bias))
@@ -297,8 +297,8 @@ class DecoderNetwork(nn.Module):
         # categorical distribution for pi
         self.categorical = Categorical
         if is_attention:
-            self.attention = LuongAttention(self.hidden_dim)
-            self.concat = nn.Linear(self.hidden_dim * 2, self.hidden_dim)
+            self.attention = LuongAttention(self.hidden_dim, bias=False)
+            self.concat = nn.Linear(self.hidden_dim * 2, self.hidden_dim, bias=False)
 
     def forward(self, encoder_outputs, encoder_hidden, actions=None):
         batch_size = encoder_outputs.size(0)
