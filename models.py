@@ -145,11 +145,15 @@ class GAT(nn.Module):
     def __init__(self, nfeat, nhid, nheads=8):
         super(GAT, self).__init__()
         self.gat_layer = GraphAttentionLayer(nfeat, nhid, nheads, concat=True)
-        self.graph_norm = GraphNorm(nfeat, affine=True)
+        self.gn1 = GraphNorm(nfeat, affine=True)
+        self.output_layer = GraphAttentionLayer(nhid, nhid, 1, concat=False)
+        self.gn2 = GraphNorm(nhid, affine=True)
 
     def forward(self, x, adj):
-        x = self.graph_norm(x)
+        x = self.gn1(x)
         x = self.gat_layer(x, adj)
+        x = self.gn2(x)
+        x = self.output_layer(x, adj)
         return x
 
 class GraphConvolution(nn.Module):
