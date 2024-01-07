@@ -369,33 +369,19 @@ class GraphSeq2Seq(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False):
         super(GraphSeq2Seq, self).__init__()
         self.graph_embedding = GAT(input_dim, hidden_dim)
-        self.point_embedding = linear_init(nn.Linear(input_dim, hidden_dim))
-        self.point_embedding_norm = nn.LayerNorm(hidden_dim)
-        self.aggregation = linear_init(nn.Linear(hidden_dim * 2, hidden_dim))
-        self.aggregation_norm = nn.LayerNorm(hidden_dim)
         self.encoder = EncoderNetwork(input_dim, hidden_dim, num_layers)
         self.encoder_norm = nn.LayerNorm(hidden_dim)
         self.decoder = DecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention)
 
     def forward(self, x, adj, decoder_inputs=None):
-        x_g = self.graph_embedding(x, adj)
-        x_p = self.point_embedding(x)
-        x_p = self.point_embedding_norm(x_p)
-        x = torch.cat([x_g, x_p], dim=-1)
-        x = self.aggregation(x)
-        x = self.aggregation_norm(x)
+        x = self.graph_embedding(x, adj)
         encoder_outputs, encoder_hidden = self.encoder(x)
         encoder_outputs = self.encoder_norm(encoder_outputs)
         actions, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
         return actions, logits, values
     
     def evaluate_actions(self, x, adj, decoder_inputs=None):
-        x_g = self.graph_embedding(x, adj)
-        x_p = self.point_embedding(x)
-        x_p = self.point_embedding_norm(x_p)
-        x = torch.cat([x_g, x_p], dim=-1)
-        x = self.aggregation(x)
-        x = self.aggregation_norm(x)
+        x = self.graph_embedding(x, adj)
         encoder_outputs, encoder_hidden = self.encoder(x)
         encoder_outputs = self.encoder_norm(encoder_outputs)
         _, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
