@@ -22,8 +22,6 @@ def recurrent_init(module):
                 nn.init.orthogonal_(param)
             elif 'bias' in name:
                 nn.init.constant_(param, 0)
-            if 'bias_ih' in name:
-                param.requires_grad = False
     return module
 
 class LuongAttention(nn.Module):
