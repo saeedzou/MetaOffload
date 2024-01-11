@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch.distributions import Categorical
 from utils import linear_init, recurrent_init
 from attentions import LuongAttention
-from graph_embeddings import GATV2, GCN, CustomGraphLayer
+from graph_embeddings import GATV2, GCN, CustomGraphLayer, GAT
 
 class EncoderNetwork(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layers):
@@ -167,27 +167,31 @@ class BaselineSeq2Seq(nn.Module):
         return values, logits
 
 class GraphSeq2Seq(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False):
+    def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False, graph='gcn'):
         super(GraphSeq2Seq, self).__init__()
-        self.gat = GATV2(input_dim, hidden_dim)
-        self.gcn = GCN(input_dim, hidden_dim)
+        if graph == 'gcn':
+            self.graph_embedding = GCN(input_dim, hidden_dim)
+        elif graph == 'gat':
+            self.graph_embedding = GAT(input_dim, hidden_dim)
+        elif graph == 'gatv2':
+            self.graph_embedding = GATV2(input_dim, hidden_dim)
+        elif graph == 'custom':
+            self.graph_embedding = CustomGraphLayer(input_dim, hidden_dim)
+        else:
+            raise NotImplementedError(f'Graph embedding {graph} not implemented.')
         self.encoder = EncoderNetwork(input_dim, hidden_dim, num_layers)
         self.encoder_norm = nn.LayerNorm(hidden_dim)
         self.decoder = DecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention)
 
     def forward(self, x, adj, decoder_inputs=None):
-        x1 = self.gat(x, adj)
-        x2 = self.gcn(x, adj)
-        x = x1 + x2
+        x = self.graph_embedding(x, adj)
         encoder_outputs, encoder_hidden = self.encoder(x)
         encoder_outputs = self.encoder_norm(encoder_outputs)
         actions, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
         return actions, logits, values
     
     def evaluate_actions(self, x, adj, decoder_inputs=None):
-        x1 = self.gat(x, adj)
-        x2 = self.gcn(x, adj)
-        x = x1 + x2
+        x = self.graph_embedding(x, adj)
         encoder_outputs, encoder_hidden = self.encoder(x)
         encoder_outputs = self.encoder_norm(encoder_outputs)
         _, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
@@ -205,44 +209,34 @@ class Graph2Seq(nn.Module):
     def forward(self, x, adj, decoder_inputs=None):
         # Node embedding
         x = self.node_embedding(x, adj)  # [N, nodes, hidden_dim]
-
         # Graph embedding
         h = self.graph_embedding(x)  # [N, nodes, hidden_dim * num_layers]
-
         # Max pooling over nodes dimension
         h = h.transpose(1, 2)  # Transpose to get [N, hidden_dim * num_layers, nodes]
         h = F.max_pool1d(h, kernel_size=h.shape[-1])  # Max pooling over nodes
         h = h.squeeze(-1)  # Remove the last dimension, get [N, hidden_dim * num_layers * 2]
-
         # Reshape to a 2 element tuple of (num_layers, N, hidden_dim)
         h1 = h[:, :self.hidden_dim*self.num_layers].reshape(self.num_layers, -1, self.hidden_dim)
         h2 = h[:, self.hidden_dim*self.num_layers:].reshape(self.num_layers, -1, self.hidden_dim)
         h = (h1, h2)
-
         # Decoder
         actions, logits, values = self.decoder(x, h, decoder_inputs)
-
         return actions, logits, values
     
     def forward(self, x, adj, decoder_inputs=None):
         # Node embedding
         x = self.node_embedding(x, adj)  # [N, nodes, hidden_dim]
-
         # Graph embedding
         h = self.graph_embedding(x)  # [N, nodes, hidden_dim * num_layers]
-
         # Max pooling over nodes dimension
         h = h.transpose(1, 2)  # Transpose to get [N, hidden_dim * num_layers, nodes]
         h = F.max_pool1d(h, kernel_size=h.shape[-1])  # Max pooling over nodes
         h = h.squeeze(-1)  # Remove the last dimension, get [N, hidden_dim * num_layers * 2]
-
         # Reshape to a 2 element tuple of (num_layers, N, hidden_dim)
         h1 = h[:, :self.hidden_dim*self.num_layers].reshape(self.num_layers, -1, self.hidden_dim)
         h2 = h[:, self.hidden_dim*self.num_layers:].reshape(self.num_layers, -1, self.hidden_dim)
         h = (h1, h2)
-
         # Decoder
         _, logits, values = self.decoder(x, h, decoder_inputs)
-
         return values, logits
 
