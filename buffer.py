@@ -47,6 +47,33 @@ class RolloutBuffer:
         self.compute_returns()
         self.compute_advantage()
 
+    def process_task(self, meta_batch):
+        self.observations[meta_batch] = np.concatenate(self.observations[meta_batch])
+        self.adj[meta_batch] = np.concatenate(self.adj[meta_batch])
+        self.actions[meta_batch] = np.concatenate(self.actions[meta_batch])
+        self.logits[meta_batch] = np.concatenate(self.logits[meta_batch])
+        self.Vs[meta_batch] = np.concatenate(self.Vs[meta_batch])
+        self.rewards[meta_batch] = np.concatenate(self.rewards[meta_batch])
+        self.finish_times[meta_batch] = np.concatenate(self.finish_times[meta_batch])
+        self.compute_returns_task(meta_batch)
+        self.compute_advantage_task(meta_batch)
+    
+    def compute_returns_task(self, meta_batch):
+        returns = []
+        for t in range(self.buffer_size):
+            returns.append(self._discount_cumsum(self.rewards[meta_batch][t], self.discount))
+        self.returns[meta_batch] = np.stack(returns)
+
+    def compute_advantage_task(self, meta_batch):
+        values = np.concatenate([self.Vs[meta_batch], np.zeros((self.buffer_size, 1))], axis=-1)
+        deltas = self.rewards[meta_batch] + self.discount * values[:, 1:] - values[:, :-1]
+        advantages = []
+        for t in range(self.buffer_size):
+            advantages.append(self._discount_cumsum(deltas[t], self.discount * self.gae_lambda))
+        self.advantages[meta_batch] = np.stack(advantages)
+        if self.normalize_advantage:
+            self.advantages[meta_batch] = (self.advantages[meta_batch] - self.advantages[meta_batch].mean()) / (self.advantages[meta_batch].std() + 1e-8)
+
     def compute_returns(self):
         for m in range(self.meta_batch_size):
             returns = []
