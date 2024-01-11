@@ -94,6 +94,38 @@ class GraphNorm(nn.Module):
             x_norm = self.scale.view(1, -1, 1) * x_norm + self.shift.view(1, -1, 1)
         return x_norm.view(x_shape)
 
+class CustomGraphLayer(nn.Module):
+    def __init__(self, in_features, out_features, k_hops=3, activation=nn.ReLU()):
+        super(CustomGraphLayer, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.k_hops = k_hops
+        self.activation = activation
+
+        self.embedding = nn.Linear(in_features, out_features, bias=False)
+        # K linear layers
+        self.layers = nn.ModuleList([nn.Linear(out_features * 2, out_features, bias=False) for _ in range(k_hops+1)])
+
+
+    def forward(self, x, adj):
+        # convert adj to binary matrix
+        adj = torch.where(adj > 0, torch.ones_like(adj), torch.zeros_like(adj))
+        x = self.embedding(x) # [batch_size, nodes, out_features]
+        x_f = x
+        x_b = x
+        for k in range(self.k_hops):
+            x_f_prime = (adj @ x_f) / (adj.sum(dim=-1, keepdim=True)) # [batch_size, nodes, out_features]
+            x_f_prime = torch.concat((x_b, x_f_prime), dim=-1) # [batch_size, nodes, out_features * 2]
+            x_f = self.activation(self.layers[k](x_f_prime)) # [batch_size, nodes, out_features]
+
+            x_b_prime = (adj.transpose(1, 2) @ x_b) / (adj.transpose(1, 2).sum(dim=-1, keepdim=True)) # [batch_size, nodes, out_features]
+            x_b_prime = torch.concat((x_b, x_b_prime), dim=-1) # [batch_size, nodes, out_features * 2]
+            x_b = self.activation(self.layers[k](x_b_prime)) # [batch_size, nodes, out_features]
+        
+        x = torch.concat((x_f, x_b), dim=-1) # [batch_size, nodes, out_features * 2]
+        x = self.layers[-1](x) # [batch_size, nodes, out_features]
+        return x
+
 class GraphAttentionLayer(nn.Module):
     def __init__(self, in_features, out_features, n_heads, concat=True, leaky_relu_slope=0.2):
         super(GraphAttentionLayer, self).__init__()
@@ -238,7 +270,6 @@ class GraphAttentionLayerV2(nn.Module):
         return self.__class__.__name__ + ' (' \
                + str(self.in_features) + ' -> ' \
                + str(self.out_features) + ')'
-    
 
 class GATV2(nn.Module):
     def __init__(self, nfeat, nhid, nheads=8):
@@ -382,7 +413,6 @@ class BaseDecoderNetwork(nn.Module):
         Q = self.critic_head(output)
         return pi, Q, hidden, context
 
-
 class DecoderNetwork(nn.Module):
     def __init__(self, output_dim, hidden_dim, num_layers, device='cpu', is_attention=False):
         super(DecoderNetwork, self).__init__()
@@ -488,3 +518,57 @@ class GraphSeq2Seq(nn.Module):
         encoder_outputs = self.encoder_norm(encoder_outputs)
         _, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
         return values, logits
+
+class Graph2Seq(nn.Module):
+    def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False):
+        super(Graph2Seq, self).__init__()
+        self.num_layers = num_layers
+        self.hidden_dim = hidden_dim
+        self.node_embedding = CustomGraphLayer(input_dim, hidden_dim)
+        self.graph_embedding = nn.Linear(hidden_dim, hidden_dim * num_layers * 2, bias=False)
+        self.decoder = DecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention)
+
+    def forward(self, x, adj, decoder_inputs=None):
+        # Node embedding
+        x = self.node_embedding(x, adj)  # [N, nodes, hidden_dim]
+
+        # Graph embedding
+        h = self.graph_embedding(x)  # [N, nodes, hidden_dim * num_layers]
+
+        # Max pooling over nodes dimension
+        h = h.transpose(1, 2)  # Transpose to get [N, hidden_dim * num_layers, nodes]
+        h = F.max_pool1d(h, kernel_size=h.shape[-1])  # Max pooling over nodes
+        h = h.squeeze(-1)  # Remove the last dimension, get [N, hidden_dim * num_layers * 2]
+
+        # Reshape to a 2 element tuple of (num_layers, N, hidden_dim)
+        h1 = h[:, :self.hidden_dim*self.num_layers].reshape(self.num_layers, -1, self.hidden_dim)
+        h2 = h[:, self.hidden_dim*self.num_layers:].reshape(self.num_layers, -1, self.hidden_dim)
+        h = (h1, h2)
+
+        # Decoder
+        actions, logits, values = self.decoder(x, h, decoder_inputs)
+
+        return actions, logits, values
+    
+    def forward(self, x, adj, decoder_inputs=None):
+        # Node embedding
+        x = self.node_embedding(x, adj)  # [N, nodes, hidden_dim]
+
+        # Graph embedding
+        h = self.graph_embedding(x)  # [N, nodes, hidden_dim * num_layers]
+
+        # Max pooling over nodes dimension
+        h = h.transpose(1, 2)  # Transpose to get [N, hidden_dim * num_layers, nodes]
+        h = F.max_pool1d(h, kernel_size=h.shape[-1])  # Max pooling over nodes
+        h = h.squeeze(-1)  # Remove the last dimension, get [N, hidden_dim * num_layers * 2]
+
+        # Reshape to a 2 element tuple of (num_layers, N, hidden_dim)
+        h1 = h[:, :self.hidden_dim*self.num_layers].reshape(self.num_layers, -1, self.hidden_dim)
+        h2 = h[:, self.hidden_dim*self.num_layers:].reshape(self.num_layers, -1, self.hidden_dim)
+        h = (h1, h2)
+
+        # Decoder
+        _, logits, values = self.decoder(x, h, decoder_inputs)
+
+        return values, logits
+
