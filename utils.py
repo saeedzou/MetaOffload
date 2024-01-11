@@ -1,3 +1,5 @@
+import torch.nn as nn
+
 def log_metrics(logger, iteration, vf_losses, pg_losses, rewards, returns, finish_times_old, finish_times_new, wandb=None):
     """
     Logs the metrics to the console and optionally to wandb.
@@ -31,3 +33,21 @@ def log_metrics(logger, iteration, vf_losses, pg_losses, rewards, returns, finis
                    'returns': returns,
                    'finish_times_old': finish_times_old,
                    'finish_times_new': finish_times_new})
+
+def linear_init(module):
+    if isinstance(module, nn.Linear):
+        nn.init.xavier_uniform_(module.weight)
+    if module.bias is not None:
+        nn.init.constant_(module.bias, 0)
+    return module
+
+def recurrent_init(module):
+    if isinstance(module, nn.LSTM):
+        for name, param in module.named_parameters():
+            if 'weight_ih' in name:
+                nn.init.xavier_uniform_(param)
+            elif 'weight_hh' in name:
+                nn.init.orthogonal_(param)
+            elif 'bias' in name:
+                nn.init.constant_(param, 0)
+    return module
