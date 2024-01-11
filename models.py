@@ -108,13 +108,14 @@ class CustomGraphLayer(nn.Module):
         return x
 
 class GraphAttentionLayer(nn.Module):
-    def __init__(self, in_features, out_features, n_heads, concat=True, leaky_relu_slope=0.2):
+    def __init__(self, in_features, out_features, n_heads, concat=True, leaky_relu_slope=0.2, directed=False):
         super(GraphAttentionLayer, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
         self.concat = concat
         self.leaky_relu_slope = leaky_relu_slope
         self.n_heads = n_heads
+        self.directed = directed
         if self.concat:
             assert self.out_features % n_heads == 0
             self.n_hidden = self.out_features // n_heads
@@ -129,6 +130,9 @@ class GraphAttentionLayer(nn.Module):
         self.leaky_relu = nn.LeakyReLU(self.leaky_relu_slope)
 
     def forward(self, h, adj):
+        if not self.directed:
+            adj = adj + adj.transpose(1, 2)
+            adj = torch.where(adj > 0, torch.ones_like(adj), torch.zeros_like(adj))
         # h.shape (B, N, in_feature)
         # adj.shape (B, N, N)
         # W.shape (in_feature, out_feature)
@@ -187,13 +191,14 @@ class GAT(nn.Module):
         return x
 
 class GraphAttentionLayerV2(nn.Module):
-    def __init__(self, in_features, out_features, n_heads, concat=True, leaky_relu_slope=0.2, share_weights=False):
+    def __init__(self, in_features, out_features, n_heads, concat=True, leaky_relu_slope=0.2, share_weights=False, directed=False):
         super(GraphAttentionLayerV2, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
         self.concat = concat
         self.leaky_relu_slope = leaky_relu_slope
         self.n_heads = n_heads
+        self.directed = directed
         if self.concat:
             assert self.out_features % n_heads == 0
             self.n_hidden = self.out_features // n_heads
@@ -215,6 +220,9 @@ class GraphAttentionLayerV2(nn.Module):
         self.leaky_relu = nn.LeakyReLU(self.leaky_relu_slope)
 
     def forward(self, h, adj):
+        if not self.directed:
+            adj = adj + adj.transpose(1, 2)
+            adj = torch.where(adj > 0, torch.ones_like(adj), torch.zeros_like(adj))
         # h.shape (B, N, in_feature)
         # adj.shape (B, N, N)
         # W.shape (in_feature, out_feature)
@@ -267,15 +275,16 @@ class GATV2(nn.Module):
         x = self.output_layer(x, adj)
         return x
 
-class GraphConvolution(nn.Module):
+class GraphConvolutionLayer(nn.Module):
     """
     Simple GCN layer, similar to https://arxiv.org/abs/1609.02907
     """
 
-    def __init__(self, in_features, out_features, bias=True):
-        super(GraphConvolution, self).__init__()
+    def __init__(self, in_features, out_features, bias=True, directed=False):
+        super(GraphConvolutionLayer, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
+        self.directed = directed
         self.weight = nn.Parameter(torch.FloatTensor(in_features, out_features))
         if bias:
             self.bias = nn.Parameter(torch.FloatTensor(out_features))
@@ -290,6 +299,10 @@ class GraphConvolution(nn.Module):
             self.bias.data.uniform_(-stdv, stdv)
 
     def forward(self, x, adj):
+        if not self.directed:
+            # make adj symmetric
+            adj = adj + adj.transpose(1, 2)
+            adj = torch.where(adj > 0, torch.ones_like(adj), torch.zeros_like(adj))
         support = x @ self.weight
         output = adj @ support
         if self.bias is not None:
@@ -304,9 +317,9 @@ class GraphConvolution(nn.Module):
 class GCN(nn.Module):
     def __init__(self, nfeat, nhid):
         super(GCN, self).__init__()
-        self.gc1 = GraphConvolution(nfeat, nhid//2)
+        self.gc1 = GraphConvolutionLayer(nfeat, nhid//2)
         self.gn1 = GraphNorm(nfeat)
-        self.gc2 = GraphConvolution(nhid//2, nhid)
+        self.gc2 = GraphConvolutionLayer(nhid//2, nhid)
         self.gn2 = GraphNorm(nhid//2)
 
     def forward(self, x, adj):
