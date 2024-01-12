@@ -15,6 +15,7 @@
 "vf_coef":0.5,
 "ent_coef":0,
 "is_graph":true,
+"graph_type":"gatv2",
 "encoding":"graph_norm",
 "obs_dim":6,
 "action_dim":2,

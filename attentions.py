@@ -1,4 +1,3 @@
-from utils import linear_init, recurrent_init
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,7 +6,7 @@ class LuongAttention(nn.Module):
     def __init__(self, hidden_dim, bias=False):
         super(LuongAttention, self).__init__()
         self.hidden_dim = hidden_dim
-        self.attention = linear_init(nn.Linear(self.hidden_dim, self.hidden_dim, bias=bias))
+        self.attention = nn.Linear(self.hidden_dim, self.hidden_dim, bias=bias)
 
     def forward(self, decoder_hidden, encoder_outputs):
         # decoder_hidden: [batch_size, 1, hidden_dim]

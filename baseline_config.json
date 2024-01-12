@@ -15,6 +15,7 @@
 "vf_coef":0.5,
 "ent_coef":0,
 "is_graph":false,
+"graph_type":"None",
 "encoding":"rank",
 "obs_dim":14,
 "action_dim":2,

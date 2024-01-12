@@ -28,10 +28,10 @@ class BaseDecoderNetwork(nn.Module):
         self.is_attention = is_attention
         # Use uniformly initialized embedding layer
         self.embedding = nn.Parameter(torch.FloatTensor(self.output_dim, self.hidden_dim).uniform_(-1.0, 1.0))
-        self.lstm = recurrent_init(nn.LSTM(self.hidden_dim * 2 if is_attention else self.hidden_dim, self.hidden_dim, self.num_layers, batch_first=True))
+        self.lstm = nn.LSTM(self.hidden_dim * 2 if is_attention else self.hidden_dim, self.hidden_dim, self.num_layers, batch_first=True)
         # output projection layer
-        self.output_layer = linear_init(nn.Linear(self.hidden_dim, self.output_dim, bias=False))
-        self.critic_head = linear_init(nn.Linear(self.output_dim, self.output_dim))
+        self.output_layer = nn.Linear(self.hidden_dim, self.output_dim, bias=False)
+        self.critic_head = nn.Linear(self.output_dim, self.output_dim)
         # categorical distribution for pi
         self.categorical = Categorical
         if is_attention:
@@ -93,11 +93,9 @@ class DecoderNetwork(nn.Module):
         self.is_attention = is_attention
         # Use uniformly initialized embedding layer
         self.embedding = nn.Parameter(torch.FloatTensor(self.output_dim, self.hidden_dim).uniform_(-1.0, 1.0))
-        self.embedding_norm = nn.LayerNorm(self.hidden_dim)
-        self.lstm = recurrent_init(nn.LSTM(self.hidden_dim * 2 if is_attention else self.hidden_dim, self.hidden_dim, self.num_layers, batch_first=True))
-        self.lstm_norm = nn.LayerNorm(self.hidden_dim)
-        self.actor_head = linear_init(nn.Linear(self.hidden_dim, self.output_dim))
-        self.critic_head = linear_init(nn.Linear(self.hidden_dim, 1))
+        self.lstm = nn.LSTM(self.hidden_dim * 2 if is_attention else self.hidden_dim, self.hidden_dim, self.num_layers, batch_first=True)
+        self.actor_head = nn.Linear(self.hidden_dim, self.output_dim)
+        self.critic_head = nn.Linear(self.hidden_dim, 1)
         # categorical distribution for pi
         self.categorical = Categorical
         if is_attention:
@@ -133,11 +131,9 @@ class DecoderNetwork(nn.Module):
 
     def forward_step(self, x, hidden, encoder_outputs, context):
         embedded = self.embedding[x] # [batch_size, 1, hidden_dim]
-        embedded = self.embedding_norm(embedded) # [batch_size, 1, hidden_dim]
         if self.is_attention:
             embedded = torch.cat((embedded, context), dim=-1) # [batch_size, 1, hidden_dim * 2]
         output, hidden = self.lstm(embedded, hidden)
-        output = self.lstm_norm(output)
         if self.is_attention:
             context, _ = self.attention(output, encoder_outputs)
             output = self.concat(torch.cat((output, context), dim=-1))
