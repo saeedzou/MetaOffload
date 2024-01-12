@@ -163,7 +163,7 @@ class BaselineSeq2Seq(nn.Module):
         return values, logits
 
 class GraphSeq2Seq(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False, graph='gcn'):
+    def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False, graph='gatv2'):
         super(GraphSeq2Seq, self).__init__()
         if graph == 'gcn':
             self.graph_embedding = GCN(input_dim, hidden_dim)
@@ -176,20 +176,17 @@ class GraphSeq2Seq(nn.Module):
         else:
             raise NotImplementedError(f'Graph embedding {graph} not implemented.')
         self.encoder = EncoderNetwork(input_dim, hidden_dim, num_layers)
-        self.encoder_norm = nn.LayerNorm(hidden_dim)
-        self.decoder = DecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention)
+        self.decoder = BaseDecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention)
 
     def forward(self, x, adj, decoder_inputs=None):
         x = self.graph_embedding(x, adj)
         encoder_outputs, encoder_hidden = self.encoder(x)
-        encoder_outputs = self.encoder_norm(encoder_outputs)
         actions, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
         return actions, logits, values
     
     def evaluate_actions(self, x, adj, decoder_inputs=None):
         x = self.graph_embedding(x, adj)
         encoder_outputs, encoder_hidden = self.encoder(x)
-        encoder_outputs = self.encoder_norm(encoder_outputs)
         _, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
         return values, logits
 
