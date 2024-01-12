@@ -256,13 +256,13 @@ class OffloadingEnvironment(MetaEnv):
             adjacency_matrix = adjacency_matrix.astype(np.float32)
             permutation = np.eye(adjacency_matrix.shape[0], dtype=np.float32)[scheduling_sequence]
             adjacency_matrix = permutation @ adjacency_matrix @ permutation.T
-            # normalize the adjacency matrix
-            degree_matrix = np.array(adjacency_matrix.sum(1))
-            degree_matrix = np.power(degree_matrix, -0.5).flatten()
-            degree_matrix[np.isinf(degree_matrix)] = 0.0
-            degree_matrix[np.isnan(degree_matrix)] = 0.0
-            degree_matrix = np.diag(degree_matrix)
-            adjacency_matrix = degree_matrix @ adjacency_matrix @ degree_matrix
+            # # normalize the adjacency matrix
+            # degree_matrix = np.array(adjacency_matrix.sum(1))
+            # degree_matrix = np.power(degree_matrix, -0.5).flatten()
+            # degree_matrix[np.isinf(degree_matrix)] = 0.0
+            # degree_matrix[np.isnan(degree_matrix)] = 0.0
+            # degree_matrix = np.diag(degree_matrix)
+            # adjacency_matrix = degree_matrix @ adjacency_matrix @ degree_matrix
             encoder_dependencies.append(adjacency_matrix)
             encoder_list.append(task_encode)
 
