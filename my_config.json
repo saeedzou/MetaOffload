@@ -17,7 +17,7 @@
 "is_graph":true,
 "graph_type":"gatv2",
 "encoding":"graph_norm",
-"obs_dim":6,
+"obs_dim":18,
 "action_dim":2,
 "encoder_units":256,
 "decoder_units":256,

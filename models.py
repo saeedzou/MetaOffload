@@ -2,17 +2,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Categorical
-from utils import linear_init, recurrent_init
 from attentions import LuongAttention
 from graph_embeddings import GATV2, GCN, CustomGraphLayer, GAT
 
 class EncoderNetwork(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_layers):
+    def __init__(self, hidden_dim, num_layers):
         super(EncoderNetwork, self).__init__()
-        self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
-        self.lstm = recurrent_init(nn.LSTM(self.hidden_dim, self.hidden_dim, self.num_layers, batch_first=True))
+        self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim, self.num_layers, batch_first=True)
 
     def forward(self, embedded):
         output, hidden = self.lstm(embedded)
@@ -146,8 +144,8 @@ class DecoderNetwork(nn.Module):
 class BaselineSeq2Seq(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False):
         super(BaselineSeq2Seq, self).__init__()
-        self.embedding = linear_init(nn.Linear(input_dim, hidden_dim))
-        self.encoder = EncoderNetwork(input_dim, hidden_dim, num_layers)
+        self.embedding = nn.Linear(input_dim, hidden_dim)
+        self.encoder = EncoderNetwork(hidden_dim, num_layers)
         self.decoder = BaseDecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention)
 
     def forward(self, x, decoder_inputs=None):
@@ -166,26 +164,35 @@ class GraphSeq2Seq(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False, graph='gatv2'):
         super(GraphSeq2Seq, self).__init__()
         if graph == 'gcn':
-            self.graph_embedding = GCN(input_dim, hidden_dim)
+            self.graph_embedding = GCN(6, hidden_dim)
         elif graph == 'gat':
-            self.graph_embedding = GAT(input_dim, hidden_dim)
+            self.graph_embedding = GAT(6, hidden_dim)
         elif graph == 'gatv2':
-            self.graph_embedding = GATV2(input_dim, hidden_dim)
+            self.graph_embedding = GATV2(6, hidden_dim)
         elif graph == 'custom':
-            self.graph_embedding = CustomGraphLayer(input_dim, hidden_dim)
+            self.graph_embedding = CustomGraphLayer(6, hidden_dim)
         else:
             raise NotImplementedError(f'Graph embedding {graph} not implemented.')
-        self.encoder = EncoderNetwork(input_dim, hidden_dim, num_layers)
+        self.point_embedding = nn.Linear(12+hidden_dim//2, hidden_dim)
+        self.encoder = EncoderNetwork(hidden_dim, num_layers)
         self.decoder = BaseDecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention)
 
     def forward(self, x, adj, decoder_inputs=None):
-        x = self.graph_embedding(x, adj)
+        x_g = x[:, :, :6]
+        x_p = x[:, :, 6:]
+        x_g = self.graph_embedding(x_g, adj)
+        x = torch.cat((x_g, x_p), dim=-1)
+        x = self.point_embedding(x)
         encoder_outputs, encoder_hidden = self.encoder(x)
         actions, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
         return actions, logits, values
     
     def evaluate_actions(self, x, adj, decoder_inputs=None):
-        x = self.graph_embedding(x, adj)
+        x_g = x[:, :, :6]
+        x_p = x[:, :, 6:]
+        x_g = self.graph_embedding(x_g, adj)
+        x = torch.cat((x_g, x_p), dim=-1)
+        x = self.point_embedding(x)
         encoder_outputs, encoder_hidden = self.encoder(x)
         _, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
         return values, logits
