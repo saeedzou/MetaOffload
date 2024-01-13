@@ -154,7 +154,7 @@ class GAT(nn.Module):
         return x
 
 class GraphAttentionLayerV2(nn.Module):
-    def __init__(self, in_features, out_features, n_heads, concat=True, leaky_relu_slope=0.2, share_weights=False, directed=False):
+    def __init__(self, in_features, out_features, n_heads, concat=True, leaky_relu_slope=0.2, share_weights=False, directed=True):
         super(GraphAttentionLayerV2, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -227,15 +227,9 @@ class GATV2(nn.Module):
     def __init__(self, nfeat, nhid, nheads=8):
         super(GATV2, self).__init__()
         self.gat_layer = GraphAttentionLayerV2(nfeat, nhid//2, nheads, concat=True)
-        self.gn1 = GraphNorm(nfeat, affine=True)
-        self.output_layer = GraphAttentionLayerV2(nhid//2, nhid, 1, concat=False)
-        self.gn2 = GraphNorm(nhid//2, affine=True)
 
     def forward(self, x, adj):
-        x = self.gn1(x)
         x = self.gat_layer(x, adj)
-        x = self.gn2(x)
-        x = self.output_layer(x, adj)
         return x
 
 class GraphConvolutionLayer(nn.Module):
