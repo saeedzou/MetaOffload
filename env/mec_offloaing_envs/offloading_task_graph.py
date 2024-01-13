@@ -297,7 +297,27 @@ class OffloadingTaskGraph(object):
             
             task_embeding_vector += [processing_data_size, transmission_data_size]
 
-            point_sequence.append(task_embeding_vector)
+            pre_task_index_set = []
+            succs_task_index_set = []
+
+            for pre_task_index in range(0, i):
+                if self.dependency[pre_task_index][i] > 0.1:
+                    pre_task_index_set.append(pre_task_index)
+
+            while (len(pre_task_index_set) < 6):
+                pre_task_index_set.append(-1.0)
+
+            for succs_task_index in range(i + 1, self.task_number):
+                if self.dependency[i][succs_task_index] > 0.1:
+                    succs_task_index_set.append(succs_task_index)
+
+            while (len(succs_task_index_set) < 6):
+                succs_task_index_set.append(-1.0)
+
+            succs_task_index_set = succs_task_index_set[0:6]
+            pre_task_index_set = pre_task_index_set[0:6]
+            point_vector = task_embeding_vector + succs_task_index_set + pre_task_index_set
+            point_sequence.append(point_vector)
 
         return point_sequence
 
