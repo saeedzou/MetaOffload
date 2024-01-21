@@ -1,108 +1,113 @@
 import numpy as np
 import torch
 
-class RolloutBuffer:
+
+class MetaRolloutBuffer:
     def __init__(self, meta_batch_size, buffer_size, discount=0.99, gae_lambda=0.95, device='cpu', normalize_advantage=True):
+        self.meta_batch_size = meta_batch_size
+        self.meta_buffer = [SingleRolloutBufferPPO(buffer_size, discount, gae_lambda, device, normalize_advantage) for _ in range(meta_batch_size)]
+        self.buffer_size = buffer_size
+        self.pos = 0
+        self.reset()
+    
+    def reset(self):
+        for m in range(self.meta_batch_size):
+            self.meta_buffer[m].reset()
+        self.pos = 0
+
+
+    def collect_episodes(self, env, batch_of_tasks, policy, device, is_graph):
+        if isinstance(policy, list):
+            for i, task in enumerate(batch_of_tasks):
+                self.meta_buffer[i].collect_episodes(env, policy[i], device, task, is_graph)
+        else:
+            for i, task in enumerate(batch_of_tasks):
+                self.meta_buffer[i].collect_episodes(env, policy, device, task, is_graph)
+    
+    def compute_returns(self):
+        for m in range(self.meta_batch_size):
+            self.meta_buffer[m].compute_returns_task()
+    
+    def compute_advantage(self):
+        for m in range(self.meta_batch_size):
+            self.meta_buffer[m].compute_advantage_task()
+    
+    def process(self):
+        for m in range(self.meta_batch_size):
+            self.meta_buffer[m].process_task()
+
+
+class SingleRolloutBufferPPO:
+    def __init__(self, buffer_size, discount=0.99, gae_lambda=0.95, device='cpu', normalize_advantage=True):
         self.discount = discount
         self.gae_lambda = gae_lambda
         self.device = device
         self.normalize_advantage = normalize_advantage
         self.buffer_size = buffer_size
-        self.meta_batch_size = meta_batch_size
         self.pos = 0
         self.reset()
 
     def reset(self):
-        self.observations = [[] for _ in range(self.meta_batch_size)]
-        self.adj = [[] for _ in range(self.meta_batch_size)]
-        self.actions = [[] for _ in range(self.meta_batch_size)]
-        self.logits = [[] for _ in range(self.meta_batch_size)]
-        self.Vs = [[] for _ in range(self.meta_batch_size)]
-        self.rewards = [[] for _ in range(self.meta_batch_size)]
-        self.advantages = [[] for _ in range(self.meta_batch_size)]
-        self.returns = [[] for _ in range(self.meta_batch_size)]
-        self.finish_times = [[] for _ in range(self.meta_batch_size)]
+        self.observations = []
+        self.adj = []
+        self.actions = []
+        self.logits = []
+        self.Vs = []
+        self.rewards = []
+        self.advantages = []
+        self.returns = []
+        self.finish_times = []
         self.pos = 0
-        
 
-    def append(self, meta_batch, observation, adj, action, logits, V, reward, finish_time):
+    def append(self, observation, adj, action, logits, V, reward, finish_time):
         num_data = observation.shape[0]
-        self.observations[meta_batch].append(observation)
-        self.adj[meta_batch].append(adj)
-        self.actions[meta_batch].append(action.cpu().numpy())
-        self.logits[meta_batch].append(logits.detach().cpu().numpy())
-        self.Vs[meta_batch].append(V.detach().cpu().numpy())
-        self.rewards[meta_batch].append(reward)
+        self.observations.append(observation)
+        self.adj.append(adj)
+        self.actions.append(action.cpu().numpy())
+        self.logits.append(logits.detach().cpu().numpy())
+        self.Vs.append(V.detach().cpu().numpy())
+        self.rewards.append(reward)
         self.pos += num_data
-        self.finish_times[meta_batch].append(finish_time)
+        self.finish_times.append(finish_time)
 
-    def process(self):
-        self.observations = [np.concatenate(obs) for obs in self.observations]
-        self.adj = [np.concatenate(adj) for adj in self.adj]
-        self.actions = [np.concatenate(act) for act in self.actions]
-        self.logits = [np.concatenate(logit) for logit in self.logits]
-        self.Vs = [np.concatenate(V) for V in self.Vs]
-        self.rewards = [np.concatenate(reward) for reward in self.rewards]
-        self.finish_times = [np.concatenate(finish_time) for finish_time in self.finish_times]
-        self.compute_returns()
-        self.compute_advantage()
+    def process_task(self):
+        self.observations = np.concatenate(self.observations)
+        self.adj = np.concatenate(self.adj)
+        self.actions = np.concatenate(self.actions)
+        self.logits = np.concatenate(self.logits)
+        self.Vs = np.concatenate(self.Vs)
+        self.rewards = np.concatenate(self.rewards)
+        self.finish_times = np.concatenate(self.finish_times)
+        self.compute_returns_task()
+        self.compute_advantage_task()
 
-    def process_task(self, meta_batch):
-        self.observations[meta_batch] = np.concatenate(self.observations[meta_batch])
-        self.adj[meta_batch] = np.concatenate(self.adj[meta_batch])
-        self.actions[meta_batch] = np.concatenate(self.actions[meta_batch])
-        self.logits[meta_batch] = np.concatenate(self.logits[meta_batch])
-        self.Vs[meta_batch] = np.concatenate(self.Vs[meta_batch])
-        self.rewards[meta_batch] = np.concatenate(self.rewards[meta_batch])
-        self.finish_times[meta_batch] = np.concatenate(self.finish_times[meta_batch])
-        self.compute_returns_task(meta_batch)
-        self.compute_advantage_task(meta_batch)
-    
-    def compute_returns_task(self, meta_batch):
+    def compute_returns_task(self):
         returns = []
         for t in range(self.buffer_size):
-            returns.append(self._discount_cumsum(self.rewards[meta_batch][t], self.discount))
-        self.returns[meta_batch] = np.stack(returns)
+            returns.append(self._discount_cumsum(self.rewards[t], self.discount))
+        self.returns = np.stack(returns)
 
-    def compute_advantage_task(self, meta_batch):
-        values = np.concatenate([self.Vs[meta_batch], np.zeros((self.buffer_size, 1))], axis=-1)
-        deltas = self.rewards[meta_batch] + self.discount * values[:, 1:] - values[:, :-1]
+    def compute_advantage_task(self):
+        values = np.concatenate([self.Vs, np.zeros((self.buffer_size, 1))], axis=-1)
+        deltas = self.rewards + self.discount * values[:, 1:] - values[:, :-1]
         advantages = []
         for t in range(self.buffer_size):
             advantages.append(self._discount_cumsum(deltas[t], self.discount * self.gae_lambda))
-        self.advantages[meta_batch] = np.stack(advantages)
+        self.advantages = np.stack(advantages)
         if self.normalize_advantage:
-            self.advantages[meta_batch] = (self.advantages[meta_batch] - self.advantages[meta_batch].mean()) / (self.advantages[meta_batch].std() + 1e-8)
+            self.advantages = (self.advantages - self.advantages.mean()) / (self.advantages.std() + 1e-8)
 
-    def compute_returns(self):
-        for m in range(self.meta_batch_size):
-            returns = []
-            for t in range(self.buffer_size):
-                returns.append(self._discount_cumsum(self.rewards[m][t], self.discount))
-            self.returns[m] = np.stack(returns)
-
-    def compute_advantage(self):
-        for m in range(self.meta_batch_size):
-            values = np.concatenate([self.Vs[m], np.zeros((self.buffer_size, 1))], axis=-1)
-            deltas = self.rewards[m] + self.discount * values[:, 1:] - values[:, :-1]
-            advantages = []
-            for t in range(self.buffer_size):
-                advantages.append(self._discount_cumsum(deltas[t], self.discount * self.gae_lambda))
-            self.advantages[m] = np.stack(advantages)
-            if self.normalize_advantage:
-                self.advantages[m] = (self.advantages[m] - self.advantages[m].mean()) / (self.advantages[m].std() + 1e-8)
-
-    def sample(self, meta_batch, batch_size=None):
-        indices = np.random.permutation(self.observations[meta_batch].shape[0])
-        observations = torch.from_numpy(self.observations[meta_batch]).to(self.device)[indices]
-        adj = torch.from_numpy(self.adj[meta_batch]).to(self.device)[indices]
-        actions = torch.from_numpy(self.actions[meta_batch]).to(self.device)[indices]
-        logits = torch.from_numpy(self.logits[meta_batch]).to(self.device)[indices]
-        Vs = torch.from_numpy(self.Vs[meta_batch]).to(self.device)[indices]
-        advantages = torch.from_numpy(self.advantages[meta_batch]).to(self.device)[indices]
-        rewards = torch.from_numpy(self.rewards[meta_batch]).to(self.device)[indices]
-        returns = torch.from_numpy(self.returns[meta_batch]).to(self.device)[indices]
-        finish_times = self.finish_times[meta_batch]
+    def sample(self, batch_size=None):
+        indices = np.random.permutation(self.observations.shape[0])
+        observations = torch.from_numpy(self.observations).to(self.device)[indices]
+        adj = torch.from_numpy(self.adj).to(self.device)[indices]
+        actions = torch.from_numpy(self.actions).to(self.device)[indices]
+        logits = torch.from_numpy(self.logits).to(self.device)[indices]
+        Vs = torch.from_numpy(self.Vs).to(self.device)[indices]
+        advantages = torch.from_numpy(self.advantages).to(self.device)[indices]
+        rewards = torch.from_numpy(self.rewards).to(self.device)[indices]
+        returns = torch.from_numpy(self.returns).to(self.device)[indices]
+        finish_times = self.finish_times
         if batch_size is None:
             batch_size = len(indices)
         observations = observations.split(batch_size, dim=0)
@@ -114,8 +119,8 @@ class RolloutBuffer:
         rewards = rewards.split(batch_size, dim=0)
         returns = returns.split(batch_size, dim=0)
         return observations, adj, actions, logits, Vs, advantages, rewards, returns, finish_times
-    
-    def collect_episodes(self, env, policy, device, meta_batch, task_id, is_graph):
+
+    def collect_episodes(self, env, policy, device, task_id, is_graph):
         env.set_task(task_id)
         self.pos = 0
         while self.pos < self.buffer_size:
@@ -127,8 +132,7 @@ class RolloutBuffer:
             else:
                 actions, logits, Vs = policy(obs)
             _, reward, _, finish_time = env.step(actions.cpu().numpy())
-            self.append(meta_batch, obs.cpu().numpy(), adj.cpu().numpy(), actions, logits, Vs, reward, finish_time)
-
+            self.append(obs.cpu().numpy(), adj.cpu().numpy(), actions, logits, Vs, reward, finish_time)
     
     def _discount_cumsum(self, x, discount_factor=0.99):
         T = x.shape[0]
