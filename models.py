@@ -144,7 +144,7 @@ class DecoderNetwork(nn.Module):
 class BaselineSeq2Seq(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False):
         super(BaselineSeq2Seq, self).__init__()
-        self.embedding = nn.Linear(input_dim, hidden_dim)
+        self.embedding = nn.Linear(input_dim, hidden_dim, bias=False)
         self.encoder = EncoderNetwork(hidden_dim, num_layers)
         self.decoder = BaseDecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention)
 
@@ -153,27 +153,21 @@ class BaselineSeq2Seq(nn.Module):
         encoder_outputs, encoder_hidden = self.encoder(x)
         actions, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
         return actions, logits, values
-    
-    def evaluate_actions(self, x, decoder_inputs=None):
-        x = self.embedding(x)
-        encoder_outputs, encoder_hidden = self.encoder(x)
-        _, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
-        return values, logits
 
 class GraphSeq2Seq(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False, graph='gatv2'):
         super(GraphSeq2Seq, self).__init__()
         if graph == 'gcn':
-            self.graph_embedding = GCN(6, hidden_dim)
+            self.graph_embedding = GCN(6, hidden_dim//2)
         elif graph == 'gat':
-            self.graph_embedding = GAT(6, hidden_dim)
+            self.graph_embedding = GAT(6, hidden_dim//2)
         elif graph == 'gatv2':
-            self.graph_embedding = GATV2(6, hidden_dim)
+            self.graph_embedding = GATV2(6, hidden_dim//2)
         elif graph == 'custom':
-            self.graph_embedding = CustomGraphLayer(6, hidden_dim)
+            self.graph_embedding = CustomGraphLayer(6, hidden_dim//2)
         else:
             raise NotImplementedError(f'Graph embedding {graph} not implemented.')
-        self.point_embedding = nn.Linear(12+hidden_dim//2, hidden_dim)
+        self.point_embedding = nn.Linear(12+hidden_dim//2, hidden_dim, bias=False)
         self.encoder = EncoderNetwork(hidden_dim, num_layers)
         self.decoder = BaseDecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention)
 
@@ -186,16 +180,6 @@ class GraphSeq2Seq(nn.Module):
         encoder_outputs, encoder_hidden = self.encoder(x)
         actions, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
         return actions, logits, values
-    
-    def evaluate_actions(self, x, adj, decoder_inputs=None):
-        x_g = x[:, :, :6]
-        x_p = x[:, :, 6:]
-        x_g = self.graph_embedding(x_g, adj)
-        x = torch.cat((x_g, x_p), dim=-1)
-        x = self.point_embedding(x)
-        encoder_outputs, encoder_hidden = self.encoder(x)
-        _, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
-        return values, logits
 
 class Graph2Seq(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False):
@@ -222,21 +206,5 @@ class Graph2Seq(nn.Module):
         # Decoder
         actions, logits, values = self.decoder(x, h, decoder_inputs)
         return actions, logits, values
-    
-    def forward(self, x, adj, decoder_inputs=None):
-        # Node embedding
-        x = self.node_embedding(x, adj)  # [N, nodes, hidden_dim]
-        # Graph embedding
-        h = self.graph_embedding(x)  # [N, nodes, hidden_dim * num_layers]
-        # Max pooling over nodes dimension
-        h = h.transpose(1, 2)  # Transpose to get [N, hidden_dim * num_layers, nodes]
-        h = F.max_pool1d(h, kernel_size=h.shape[-1])  # Max pooling over nodes
-        h = h.squeeze(-1)  # Remove the last dimension, get [N, hidden_dim * num_layers * 2]
-        # Reshape to a 2 element tuple of (num_layers, N, hidden_dim)
-        h1 = h[:, :self.hidden_dim*self.num_layers].reshape(self.num_layers, -1, self.hidden_dim)
-        h2 = h[:, self.hidden_dim*self.num_layers:].reshape(self.num_layers, -1, self.hidden_dim)
-        h = (h1, h2)
-        # Decoder
-        _, logits, values = self.decoder(x, h, decoder_inputs)
-        return values, logits
+
 
