@@ -30,9 +30,9 @@ def inner_loop(policy, optimizer, buffer, hparams):
             # update new task policy using the sampled trajectories
             # compute likelihood ratio
             if hparams.is_graph:
-                v_pred, new_logit = policy.evaluate_actions(observation, adj, action)
+                _, new_logit, v_pred = policy(observation, adj, action)
             else:
-                v_pred, new_logit = policy.evaluate_actions(observation, action)
+                _, new_logit, v_pred = policy(observation, action)
             action = action.type(torch.int64)
             new_logit_a = new_logit.gather(-1, action.unsqueeze(-1)).squeeze(-1)
             old_logit_a = old_logit.gather(-1, action.unsqueeze(-1)).squeeze(-1)
