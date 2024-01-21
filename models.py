@@ -82,8 +82,10 @@ class BaseDecoderNetwork(nn.Module):
         return pi, Q, hidden, context
 
 class DecoderNetwork(nn.Module):
-    def __init__(self, output_dim, hidden_dim, num_layers, device='cpu', is_attention=False):
+    def __init__(self, output_dim, hidden_dim, num_layers, device='cpu', is_attention=False, arch='policy'):
         super(DecoderNetwork, self).__init__()
+        assert arch in ['policy', 'value']
+        self.arch = arch
         self.output_dim = output_dim
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
@@ -92,7 +94,8 @@ class DecoderNetwork(nn.Module):
         # Use uniformly initialized embedding layer
         self.embedding = nn.Parameter(torch.FloatTensor(self.output_dim, self.hidden_dim).uniform_(-1.0, 1.0))
         self.lstm = nn.LSTM(self.hidden_dim * 2 if is_attention else self.hidden_dim, self.hidden_dim, self.num_layers, batch_first=True)
-        self.actor_head = nn.Linear(self.hidden_dim, self.output_dim)
+        if arch == 'policy':
+            self.actor_head = nn.Linear(self.hidden_dim, self.output_dim)
         self.critic_head = nn.Linear(self.hidden_dim, 1)
         # categorical distribution for pi
         self.categorical = Categorical
@@ -101,6 +104,7 @@ class DecoderNetwork(nn.Module):
             self.concat = nn.Linear(self.hidden_dim * 2, self.hidden_dim, bias=False)
 
     def forward(self, encoder_outputs, encoder_hidden, actions=None):
+        assert actions is not None or self.arch == 'policy'
         batch_size = encoder_outputs.size(0)
         decoding_len = encoder_outputs.size(1)
 
@@ -108,7 +112,7 @@ class DecoderNetwork(nn.Module):
         context = encoder_outputs.mean(dim=1, keepdim=True)
         decoder_hidden = encoder_hidden
 
-        logits = torch.zeros(batch_size, decoding_len, self.output_dim, device=self.device)
+        logits = torch.zeros(batch_size, decoding_len, self.output_dim, device=self.device) if self.arch == 'policy' else None
         values = torch.zeros(batch_size, decoding_len, 1, device=self.device)
         decoder_action = torch.zeros(batch_size, decoding_len, device=self.device)
         # loop over the sequence length
@@ -121,7 +125,8 @@ class DecoderNetwork(nn.Module):
             else:
                 action = actions[:, t].unsqueeze(1).long()
             decoder_input = action
-            logits[:, t, :] = logit.squeeze(1)
+            if self.arch == 'policy':
+                logits[:, t, :] = logit.squeeze(1)
             values[:, t, :] = value.squeeze(1)
             decoder_action[:, t] = action.squeeze(1)
         values = values.squeeze(-1)
@@ -136,10 +141,12 @@ class DecoderNetwork(nn.Module):
             context, _ = self.attention(output, encoder_outputs)
             output = self.concat(torch.cat((output, context), dim=-1))
             context = nn.Tanh()(output)
-        output = self.actor_head(context)
-        pi = F.softmax(output, dim=-1)
         value = self.critic_head(context)
-        return pi, value, hidden, context
+        if self.arch == 'policy':
+            output = self.actor_head(context)
+            pi = F.softmax(output, dim=-1)
+            return pi, value, hidden, context
+        return None, value, hidden, context
 
 class BaselineSeq2Seq(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False):
@@ -147,6 +154,19 @@ class BaselineSeq2Seq(nn.Module):
         self.embedding = nn.Linear(input_dim, hidden_dim, bias=False)
         self.encoder = EncoderNetwork(hidden_dim, num_layers)
         self.decoder = BaseDecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention)
+
+    def forward(self, x, decoder_inputs=None):
+        x = self.embedding(x)
+        encoder_outputs, encoder_hidden = self.encoder(x)
+        actions, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
+        return actions, logits, values
+
+class BaselineSeq2SeqDual(nn.Module):
+    def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False, arch='policy'):
+        super(BaselineSeq2SeqDual, self).__init__()
+        self.embedding = nn.Linear(input_dim, hidden_dim, bias=False)
+        self.encoder = EncoderNetwork(hidden_dim, num_layers)
+        self.decoder = DecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention, arch)
 
     def forward(self, x, decoder_inputs=None):
         x = self.embedding(x)
@@ -180,6 +200,34 @@ class GraphSeq2Seq(nn.Module):
         encoder_outputs, encoder_hidden = self.encoder(x)
         actions, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
         return actions, logits, values
+
+class GraphSeq2SeqDual(nn.Module):
+    def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False, graph='gatv2', arch='policy'):
+        super(GraphSeq2SeqDual, self).__init__()
+        if graph == 'gcn':
+            self.graph_embedding = GCN(6, hidden_dim//2)
+        elif graph == 'gat':
+            self.graph_embedding = GAT(6, hidden_dim//2)
+        elif graph == 'gatv2':
+            self.graph_embedding = GATV2(6, hidden_dim//2)
+        elif graph == 'custom':
+            self.graph_embedding = CustomGraphLayer(6, hidden_dim//2)
+        else:
+            raise NotImplementedError(f'Graph embedding {graph} not implemented.')
+        self.point_embedding = nn.Linear(12+hidden_dim//2, hidden_dim, bias=False)
+        self.encoder = EncoderNetwork(hidden_dim, num_layers)
+        self.decoder = DecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention, arch)
+
+    def forward(self, x, adj, decoder_inputs=None):
+        x_g = x[:, :, :6]
+        x_p = x[:, :, 6:]
+        x_g = self.graph_embedding(x_g, adj)
+        x = torch.cat((x_g, x_p), dim=-1)
+        x = self.point_embedding(x)
+        encoder_outputs, encoder_hidden = self.encoder(x)
+        actions, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
+        return actions, logits, values
+
 
 class Graph2Seq(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False):
