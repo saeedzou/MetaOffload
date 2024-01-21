@@ -143,3 +143,82 @@ class SingleRolloutBufferPPO:
             discounted_return[t] = np.sum(x[t:] * discount)
 
         return discounted_return
+
+
+class SingleRolloutBufferPPG(SingleRolloutBufferPPO):
+    def __init__(self, buffer_size, discount=0.99, gae_lambda=0.95, device='cpu', normalize_advantage=True):
+        super(SingleRolloutBufferPPG, self).__init__(buffer_size, discount, gae_lambda, device, normalize_advantage)
+
+    def collect_episodes(self, env, policy_net, value_net, device, task_id, is_graph):
+        env.set_task(task_id)
+        self.pos = 0
+        while self.pos < self.buffer_size:
+            obs, adj = env.reset()
+            obs = torch.from_numpy(obs).to(device)
+            adj = torch.from_numpy(adj).to(device)
+            if is_graph:
+                actions, logits, _ = policy_net(obs, adj)
+                _, _, Vs = value_net(obs, adj, actions)
+            else:
+                actions, logits, _ = policy_net(obs)
+                _, _, Vs = value_net(obs, actions)
+            _, reward, _, finish_time = env.step(actions.cpu().numpy())
+            self.append(obs.cpu().numpy(), adj.cpu().numpy(), actions, logits, Vs, reward, finish_time)
+
+
+class SingleAuxBuffer:
+    def __init__(self, device='cpu'):
+        self.device = device
+        self.reset()
+
+    def reset(self):
+        self.observations = []
+        self.adj = []
+        self.actions = []
+        self.returns = []
+        self.Vs = []
+        self.logits = []
+
+    def store_data(self, rollout_buffer):
+        self.observations.append(rollout_buffer.observations)
+        self.adj.append(rollout_buffer.adj)
+        self.actions.append(rollout_buffer.actions)
+        self.returns.append(rollout_buffer.returns)
+        self.Vs.append(rollout_buffer.Vs)
+
+    def process_task(self):
+        self.observations = np.concatenate(self.observations)
+        self.adj = np.concatenate(self.adj)
+        self.actions = np.concatenate(self.actions)
+        self.returns = np.concatenate(self.returns)
+        self.Vs = np.concatenate(self.Vs)
+        self.logits = np.concatenate(self.logits)
+
+    def compute_logits(self, policy_net, is_graph):
+        for obs, adjs, action in zip(self.observations, self.adj, self.actions):
+            obs = torch.from_numpy(obs).to(self.device)
+            action = torch.from_numpy(action).to(self.device)
+            if is_graph:
+                adjs = torch.from_numpy(adjs).to(self.device)
+                _, logits, _ = policy_net(obs, adjs, action)
+            else:
+                _, logits, _ = policy_net(obs, action)
+            self.logits.append(logits.detach().cpu().numpy())
+
+    def sample(self, batch_size=None):
+        indices = np.random.permutation(self.observations.shape[0])
+        observations = torch.from_numpy(self.observations).to(self.device)[indices]
+        adj = torch.from_numpy(self.adj).to(self.device)[indices]
+        actions = torch.from_numpy(self.actions).to(self.device)[indices]
+        logits = torch.from_numpy(self.logits).to(self.device)[indices]
+        Vs = torch.from_numpy(self.Vs).to(self.device)[indices]
+        returns = torch.from_numpy(self.returns).to(self.device)[indices]
+        if batch_size is None:
+            batch_size = len(indices)
+        observations = observations.split(batch_size, dim=0)
+        adj = adj.split(batch_size, dim=0)
+        actions = actions.split(batch_size, dim=0)
+        logits = logits.split(batch_size, dim=0)
+        Vs = Vs.split(batch_size, dim=0)
+        returns = returns.split(batch_size, dim=0)
+        return observations, adj, actions, logits, Vs, returns
