@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 
 
-def inner_loop(policy, optimizer, buffer, meta_batch, task_id, hparams):
+def inner_loop(policy, optimizer, buffer, hparams):
     """
     Executes the inner loop of the meta-training process.
 
@@ -22,10 +22,10 @@ def inner_loop(policy, optimizer, buffer, meta_batch, task_id, hparams):
         fts (list): List of finish times of DAGs.
         policy (Policy): The updated policy network.
     """
-    observations, adjs, actions, logits, v_olds, advantages, rewards, returns, fts = buffer.sample(meta_batch, batch_size=hparams.inner_batch_size)
+    observations, adjs, actions, logits, v_olds, advantages, rewards, returns, fts = buffer.sample(batch_size=hparams.inner_batch_size)
     vf_loss, pg_loss = [], []
     # Adapt the policy on the current task
-    for step in tqdm(range(hparams.adaptation_steps), desc=f'Adapting task {task_id}', ascii=True, leave=False):
+    for step in tqdm(range(hparams.adaptation_steps), desc=f'Adapting task', ascii=True, leave=False):
         for observation, adj, action, old_logit, v_old, advantage, return_ in zip(observations, adjs, actions, logits, v_olds, advantages, returns):
             # update new task policy using the sampled trajectories
             # compute likelihood ratio
