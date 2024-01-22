@@ -12,6 +12,7 @@
 "max_grad_norm":0.5,
 "N_pi":10,
 "E_pi":1,
+"E_v":1,
 "E_aux":6,
 "beta_clone":1,
 "vf_is_clipped":true,
