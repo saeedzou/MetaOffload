@@ -178,16 +178,17 @@ class GraphSeq2Seq(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False, graph='gatv2'):
         super(GraphSeq2Seq, self).__init__()
         if graph == 'gcn':
-            self.graph_embedding = GCN(6, hidden_dim//2)
+            self.graph_embedding = GCN(6, hidden_dim)
         elif graph == 'gat':
-            self.graph_embedding = GAT(6, hidden_dim//2)
+            self.graph_embedding = GAT(6, hidden_dim)
         elif graph == 'gatv2':
-            self.graph_embedding = GATV2(6, hidden_dim//2)
+            self.graph_embedding = GATV2(6, hidden_dim)
         elif graph == 'custom':
-            self.graph_embedding = CustomGraphLayer(6, hidden_dim//2)
+            self.graph_embedding = CustomGraphLayer(6, hidden_dim)
         else:
             raise NotImplementedError(f'Graph embedding {graph} not implemented.')
-        self.point_embedding = nn.Linear(12+hidden_dim//2, hidden_dim, bias=False)
+        self.point_embedding = nn.Linear(12, hidden_dim, bias=False)
+        self.embedding = nn.Linear(2 * hidden_dim, hidden_dim, bias=False)
         self.encoder = EncoderNetwork(hidden_dim, num_layers)
         self.decoder = BaseDecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention)
 
@@ -195,8 +196,9 @@ class GraphSeq2Seq(nn.Module):
         x_g = x[:, :, :6]
         x_p = x[:, :, 6:]
         x_g = self.graph_embedding(x_g, adj)
+        x_p = self.point_embedding(x_p)
         x = torch.cat((x_g, x_p), dim=-1)
-        x = self.point_embedding(x)
+        x = self.embedding(x)
         encoder_outputs, encoder_hidden = self.encoder(x)
         actions, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
         return actions, logits, values
@@ -205,16 +207,17 @@ class GraphSeq2SeqDual(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False, graph='gatv2', arch='policy'):
         super(GraphSeq2SeqDual, self).__init__()
         if graph == 'gcn':
-            self.graph_embedding = GCN(6, hidden_dim//2)
+            self.graph_embedding = GCN(6, hidden_dim)
         elif graph == 'gat':
-            self.graph_embedding = GAT(6, hidden_dim//2)
+            self.graph_embedding = GAT(6, hidden_dim)
         elif graph == 'gatv2':
-            self.graph_embedding = GATV2(6, hidden_dim//2)
+            self.graph_embedding = GATV2(6, hidden_dim)
         elif graph == 'custom':
-            self.graph_embedding = CustomGraphLayer(6, hidden_dim//2)
+            self.graph_embedding = CustomGraphLayer(6, hidden_dim)
         else:
             raise NotImplementedError(f'Graph embedding {graph} not implemented.')
-        self.point_embedding = nn.Linear(12+hidden_dim//2, hidden_dim, bias=False)
+        self.point_embedding = nn.Linear(12, hidden_dim, bias=False)
+        self.embedding = nn.Linear(2 * hidden_dim, hidden_dim, bias=False)
         self.encoder = EncoderNetwork(hidden_dim, num_layers)
         self.decoder = DecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention, arch)
 
@@ -222,8 +225,9 @@ class GraphSeq2SeqDual(nn.Module):
         x_g = x[:, :, :6]
         x_p = x[:, :, 6:]
         x_g = self.graph_embedding(x_g, adj)
+        x_p = self.point_embedding(x_p)
         x = torch.cat((x_g, x_p), dim=-1)
-        x = self.point_embedding(x)
+        x = self.embedding(x)
         encoder_outputs, encoder_hidden = self.encoder(x)
         actions, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
         return actions, logits, values
