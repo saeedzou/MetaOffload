@@ -39,7 +39,7 @@ class GraphNorm(nn.Module):
 
 
 class CustomGraphLayer(nn.Module):
-    def __init__(self, in_features, out_features, k_hops=3, activation=nn.ReLU()):
+    def __init__(self, in_features, out_features, k_hops=3, activation=nn.ELU()):
         super(CustomGraphLayer, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
