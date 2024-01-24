@@ -42,5 +42,5 @@
 "load":false,
 "load_path":"./models/policy_0.pt",
 "graph_number":100,
-"graph_file_paths":["./env/mec_offloaing_envs/data/meta_offloading_20/offload_random20_10/random.20."]
+"graph_file_paths":["./env/mec_offloaing_envs/data/meta_offloading_n/offload_random20/random.20."]
 }
