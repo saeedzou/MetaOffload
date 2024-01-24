@@ -208,7 +208,7 @@ class GraphSeq2Seq(nn.Module):
             x_fg = x_fg.permute(0, 2, 1)
             x_fg = F.max_pool1d(x_fg, kernel_size=x_fg.shape[-1])
             x_fg = x_fg.permute(0, 2, 1)
-            encoder_outputs += x_fg
+            encoder_outputs = encoder_outputs + x_fg
         actions, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
         return actions, logits, values
 
@@ -246,7 +246,7 @@ class GraphSeq2SeqDual(nn.Module):
             x_fg = x_fg.permute(0, 2, 1)
             x_fg = F.max_pool1d(x_fg, kernel_size=x_fg.shape[-1])
             x_fg = x_fg.permute(0, 2, 1)
-            encoder_outputs += x_fg
+            encoder_outputs = encoder_outputs + x_fg
         actions, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
         return actions, logits, values
 
