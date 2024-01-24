@@ -1,3 +1,5 @@
 *.pyc
 *.pt
 wandb
+*.log
+*.txt
