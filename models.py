@@ -275,32 +275,3 @@ class GraphSeq2SeqDual(nn.Module):
             encoder_outputs = encoder_outputs + x_fg
         actions, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
         return actions, logits, values
-
-
-class Graph2Seq(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False):
-        super(Graph2Seq, self).__init__()
-        self.num_layers = num_layers
-        self.hidden_dim = hidden_dim
-        self.node_embedding = CustomGraphLayer(input_dim, hidden_dim)
-        self.graph_embedding = nn.Linear(hidden_dim, hidden_dim * num_layers * 2, bias=False)
-        self.decoder = DecoderNetwork(output_dim, hidden_dim, num_layers, device, is_attention)
-
-    def forward(self, x, adj, decoder_inputs=None):
-        # Node embedding
-        x = self.node_embedding(x, adj)  # [N, nodes, hidden_dim]
-        # Graph embedding
-        h = self.graph_embedding(x)  # [N, nodes, hidden_dim * num_layers]
-        # Max pooling over nodes dimension
-        h = h.transpose(1, 2)  # Transpose to get [N, hidden_dim * num_layers, nodes]
-        h = F.max_pool1d(h, kernel_size=h.shape[-1])  # Max pooling over nodes
-        h = h.squeeze(-1)  # Remove the last dimension, get [N, hidden_dim * num_layers * 2]
-        # Reshape to a 2 element tuple of (num_layers, N, hidden_dim)
-        h1 = h[:, :self.hidden_dim*self.num_layers].reshape(self.num_layers, -1, self.hidden_dim)
-        h2 = h[:, self.hidden_dim*self.num_layers:].reshape(self.num_layers, -1, self.hidden_dim)
-        h = (h1, h2)
-        # Decoder
-        actions, logits, values = self.decoder(x, h, decoder_inputs)
-        return actions, logits, values
-
-
