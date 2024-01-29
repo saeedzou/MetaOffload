@@ -1,5 +1,5 @@
 import torch
-import torch.nn as nn
+from torch import nn
 import torch.nn.functional as F
 from torch.distributions import Categorical
 from attentions import LuongAttention
@@ -125,7 +125,7 @@ class DecoderNetwork(nn.Module):
             else:
                 action = actions[:, t].unsqueeze(1).long()
             decoder_input = action
-            if self.arch == 'policy':
+            if self.arch == 'policy' and logits is not None:
                 logits[:, t, :] = logit.squeeze(1)
             values[:, t, :] = value.squeeze(1)
             decoder_action[:, t] = action.squeeze(1)
@@ -175,7 +175,7 @@ class BaselineSeq2SeqDual(nn.Module):
         return actions, logits, values
 
 class GraphSeq2Seq(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False, graph='gatv2'):
+    def __init__(self, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False, graph='gatv2'):
         super(GraphSeq2Seq, self).__init__()
         self.graph = graph
         if graph == 'gcn':
@@ -239,7 +239,7 @@ class GraphSeq2Seq(nn.Module):
             raise NotImplementedError(f'Part {part} not implemented.')
 
 class GraphSeq2SeqDual(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False, graph='gatv2', arch='policy'):
+    def __init__(self, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False, graph='gatv2', arch='policy'):
         super(GraphSeq2SeqDual, self).__init__()
         self.graph = graph
         if graph == 'gcn':
