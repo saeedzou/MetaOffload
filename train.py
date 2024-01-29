@@ -82,7 +82,8 @@ def outer_loop(meta_policy, task_policies, outer_optimizer, hparams):
     outer_optimizer.zero_grad()
     for i in range(hparams.meta_batch_size):
         for core_param, task_param in zip(meta_policy.parameters(), task_policies[i].parameters()):
-            if core_param.grad is None:
+            if core_param.grad is None and core_param.requires_grad:
                 core_param.grad = torch.zeros_like(core_param)
-            core_param.grad += (core_param - task_param) / hparams.meta_batch_size / hparams.inner_lr / hparams.adaptation_steps / update_number
+            if core_param.requires_grad:
+                core_param.grad += (core_param - task_param) / hparams.meta_batch_size / hparams.inner_lr / hparams.adaptation_steps / update_number
     outer_optimizer.step()
