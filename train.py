@@ -1,7 +1,7 @@
+"""tqdm is a fast, extensible progress bar for loops and iterables in Python."""
 from tqdm import tqdm
 import numpy as np
 import torch
-import torch.nn.functional as F
 
 
 def inner_loop(policy, optimizer, buffer, hparams):
@@ -22,11 +22,13 @@ def inner_loop(policy, optimizer, buffer, hparams):
         fts (list): List of finish times of DAGs.
         policy (Policy): The updated policy network.
     """
-    observations, adjs, actions, logits, v_olds, advantages, rewards, returns, fts = buffer.sample(batch_size=hparams.inner_batch_size)
+    observations, adjs, actions, logits, v_olds, advantages, _, returns, fts = \
+        buffer.sample(batch_size=hparams.inner_batch_size)
     vf_loss, pg_loss = [], []
     # Adapt the policy on the current task
-    for step in tqdm(range(hparams.adaptation_steps), desc=f'Adapting task', ascii=True, leave=False):
-        for observation, adj, action, old_logit, v_old, advantage, return_ in zip(observations, adjs, actions, logits, v_olds, advantages, returns):
+    for _ in tqdm(range(hparams.adaptation_steps), desc='Adapting task', ascii=True, leave=False):
+        for observation, adj, action, old_logit, v_old, advantage, return_ in \
+            zip(observations, adjs, actions, logits, v_olds, advantages, returns):
             # update new task policy using the sampled trajectories
             # compute likelihood ratio
             if hparams.is_graph:
@@ -43,8 +45,10 @@ def inner_loop(policy, optimizer, buffer, hparams):
             policy_loss = -torch.min(obj, obj_clip).mean()
             # compute value loss
             if hparams.vf_is_clipped:
-                v_pred_clipped = v_pred + (v_pred - v_old).clamp(-hparams.clip_eps, hparams.clip_eps)
-                v_loss = 0.5 * torch.max((v_pred - return_).pow(2), (v_pred_clipped - return_).pow(2)).mean()
+                v_pred_clipped = \
+                    v_pred + (v_pred - v_old).clamp(-hparams.clip_eps, hparams.clip_eps)
+                v_loss = 0.5 * torch.max((v_pred - return_).pow(2), (
+                    v_pred_clipped - return_).pow(2)).mean()
             else:
                 v_loss = 0.5 * (v_pred - return_).pow(2).mean()
             vf_loss.append(v_loss.item())
@@ -85,5 +89,7 @@ def outer_loop(meta_policy, task_policies, outer_optimizer, hparams):
             if core_param.grad is None and core_param.requires_grad:
                 core_param.grad = torch.zeros_like(core_param)
             if core_param.requires_grad:
-                core_param.grad += (core_param - task_param) / hparams.meta_batch_size / hparams.inner_lr / hparams.adaptation_steps / update_number
+                grad_update = (core_param - task_param) / hparams.meta_batch_size
+                grad_update /= hparams.inner_lr * hparams.adaptation_steps * update_number
+                core_param.grad += grad_update
     outer_optimizer.step()
