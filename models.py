@@ -211,6 +211,32 @@ class GraphSeq2Seq(nn.Module):
             encoder_outputs = encoder_outputs + x_fg
         actions, logits, values = self.decoder(encoder_outputs, encoder_hidden, decoder_inputs)
         return actions, logits, values
+    
+    def freeze_encoder(self):
+        for param in self.encoder.parameters():
+            param.requires_grad = False
+    
+    def freeze_embedding(self):
+        for param in self.embedding.parameters():
+            param.requires_grad = False
+        for param in self.graph_embedding.parameters():
+            param.requires_grad = False
+        for param in self.point_embedding.parameters():
+            param.requires_grad = False
+        for param in self.full_graph.parameters():
+            param.requires_grad = False
+    
+    def freeze_decoder(self, part='lstm'):
+        if part == 'lstm':
+            for param in self.decoder.lstm.parameters():
+                param.requires_grad = False
+        elif part == 'attention':
+            for param in self.decoder.attention.parameters():
+                param.requires_grad = False
+            for param in self.decoder.concat.parameters():
+                param.requires_grad = False
+        else:
+            raise NotImplementedError(f'Part {part} not implemented.')
 
 class GraphSeq2SeqDual(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_layers, output_dim, device='cuda', is_attention=False, graph='gatv2', arch='policy'):
