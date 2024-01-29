@@ -17,7 +17,7 @@ from env.mec_offloaing_envs.offloading_env import OffloadingEnvironment
 from models import GraphSeq2Seq, BaselineSeq2Seq
 from buffer import SingleRolloutBufferPPO
 from train import inner_loop
-from utils import log_metrics
+from utils import log_metrics, Config
 
 
 parser = argparse.ArgumentParser(description="A simple argparse example.")
@@ -26,11 +26,6 @@ cfg = parser.parse_args()
 
 with open(cfg.config) as f:
     args = json.load(f)
-
-class Config:
-        def __init__(self, dictionary):
-            for key, value in dictionary.items():
-                setattr(self, key, value)
 
 c = Config(args)
 device = c.device
