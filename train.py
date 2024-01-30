@@ -83,13 +83,12 @@ def outer_loop(meta_policy, task_policies, outer_optimizer, hparams):
     """
     # Update the meta policy using reptile
     update_number = hparams.graph_number * hparams.num_task_episodes / hparams.inner_batch_size
+    update_number = hparams.meta_batch_size * hparams.inner_lr * hparams.adaptation_steps * update_number
     outer_optimizer.zero_grad()
     for i in range(hparams.meta_batch_size):
         for core_param, task_param in zip(meta_policy.parameters(), task_policies[i].parameters()):
-            if core_param.grad is None and core_param.requires_grad:
-                core_param.grad = torch.zeros_like(core_param)
             if core_param.requires_grad:
-                grad_update = (core_param - task_param) / hparams.meta_batch_size
-                grad_update /= hparams.inner_lr * hparams.adaptation_steps * update_number
-                core_param.grad += grad_update
+                if core_param.grad is None:
+                    core_param.grad = torch.zeros_like(core_param)
+                core_param.grad.add_((core_param - task_param) / update_number)
     outer_optimizer.step()
