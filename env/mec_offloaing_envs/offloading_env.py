@@ -432,7 +432,7 @@ class OffloadingEnvironment(MetaEnv):
         target_batch = np.array(target_batch)
         return target_batch, task_finish_time_batch
 
-    def greedy_solution(self):
+    def greedy_solution(self, heft=True):
         result_plan = []
         finish_time_batchs = []
         for task_graph_batch in self.task_graphs_batchs:
@@ -452,8 +452,13 @@ class OffloadingEnvironment(MetaEnv):
                 # finish time recieving channel for each task
                 FT_wr = [0] * task_graph.task_number
                 plan = []
-
-                for i in task_graph.prioritize_sequence:
+                
+                if heft:
+                    task_index = task_graph.prioritize_sequence
+                else:
+                    task_index = np.arange(task_graph.task_number)
+                
+                for i in task_index:
                     task = task_graph.task_list[i]
 
                     # calculate the local finish time
