@@ -16,13 +16,19 @@ class MetaRolloutBuffer:
         self.pos = 0
 
 
-    def collect_episodes(self, env, batch_of_tasks, policy, device, is_graph):
+    def collect_episodes(self, env, batch_of_tasks, policy, device, is_graph, rates_list=None):
         if isinstance(policy, list):
             for i, task in enumerate(batch_of_tasks):
-                self.meta_buffer[i].collect_episodes(env, policy[i], device, task, is_graph)
+                if rates_list is not None:
+                    self.meta_buffer[i].collect_episodes(env, policy[i], device, task, is_graph, rates_list[task])
+                else:
+                    self.meta_buffer[i].collect_episodes(env, policy[i], device, task, is_graph)
         else:
             for i, task in enumerate(batch_of_tasks):
-                self.meta_buffer[i].collect_episodes(env, policy, device, task, is_graph)
+                if rates_list is not None:
+                    self.meta_buffer[i].collect_episodes(env, policy, device, task, is_graph, rates_list[task])
+                else:
+                    self.meta_buffer[i].collect_episodes(env, policy, device, task, is_graph)
     
     def compute_returns(self):
         for m in range(self.meta_batch_size):
@@ -120,8 +126,11 @@ class SingleRolloutBufferPPO:
         returns = returns.split(batch_size, dim=0)
         return observations, adj, actions, logits, Vs, advantages, rewards, returns, finish_times
 
-    def collect_episodes(self, env, policy, device, task_id, is_graph):
+    def collect_episodes(self, env, policy, device, task_id, is_graph, rate=None):
         env.set_task(task_id)
+        if rate is not None:
+            env.resource_cluster.bandwidth_up = rate
+            env.resource_cluster.bandwidth_dl = rate
         self.pos = 0
         while self.pos < self.buffer_size:
             obs, adj = env.reset()
