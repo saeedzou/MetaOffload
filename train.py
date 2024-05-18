@@ -92,3 +92,48 @@ def outer_loop(meta_policy, task_policies, outer_optimizer, hparams):
                     core_param.grad = torch.zeros_like(core_param)
                 core_param.grad.add_((core_param - task_param) / update_number)
     outer_optimizer.step()
+
+def outer_loop_stable(meta_policy, task_policies, outer_optimizer, hparams):
+    """
+    Performs the outer loop of the meta-training process.
+
+    Args:
+        meta_policy (torch.nn.Module): The meta policy network.
+        task_policies (list): List of task-specific policy networks.
+        outer_optimizer (torch.optim.Optimizer): The optimizer for updating the meta policy.
+        hparams (Namespace): Hyperparameters for the training process.
+
+    Returns:
+        None
+    """
+    # Update the meta policy using reptile
+    update_number = hparams.graph_number * hparams.num_task_episodes / hparams.inner_batch_size
+    update_number = hparams.meta_batch_size * hparams.inner_lr * hparams.adaptation_steps * update_number
+    outer_optimizer.zero_grad()
+    for i in range(hparams.meta_batch_size):
+        for core_param, task_param in zip(meta_policy.parameters(), task_policies[i].parameters()):
+            if task_param.requires_grad:
+                if task_param.grad is None:
+                    task_param.grad = torch.zeros_like(core_param)
+                task_param.grad.add_((core_param - task_param) / update_number)
+
+    for core_name, core_param in meta_policy.named_parameters():
+        if core_param.requires_grad:
+            if core_param.grad is None:
+                core_param.grad = torch.zeros_like(core_param)
+            avg_grad = torch.zeros_like(core_param)
+            for i in range(hparams.meta_batch_size):
+                avg_grad.add_(task_policies[i].get_parameter(core_name).grad)
+            avg_grad.div_(hparams.meta_batch_size)
+
+            w = torch.stack([
+                torch.dot(
+                    task_policies[i].get_parameter(core_name).grad.view(-1),
+                    avg_grad.view(-1)
+                ) for i in range(hparams.meta_batch_size)
+            ])
+            w = torch.softmax(w, dim=0)
+
+            for i in range(hparams.meta_batch_size):
+                core_param.grad.add_(w[i] * task_policies[i].get_parameter(core_name).grad)
+    outer_optimizer.step()
